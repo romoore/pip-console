@@ -306,7 +306,7 @@ int main(int ac, char** arg_vector) {
 
     //A try/catch block is set up to handle exception during quitting.
     try {
-      while (not killed) {
+      while (connected and not killed) {
         //Check for new USB devices by checking if new devices were added or force a check every 3 seconds.
         if (0 < usb_find_busses() + usb_find_devices()) {
           attachPIPs(pip_devs);
@@ -424,7 +424,7 @@ int main(int ac, char** arg_vector) {
     }
     //Try to reconnect to the server after losing the connection.
     //Sleep a little bit, then try connecting to the server again.
-    usleep(1000);
+    usleep(1000000);
   }
   std::cerr<<"Exiting\n";
   //Clean up the pip connections before exiting.
