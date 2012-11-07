@@ -267,6 +267,13 @@ int main(int ac, char** arg_vector) {
 
   //Attach new pip devices.
   attachPIPs(pip_devs);
+  //Remember when the USB tree was last checked and check it occasionally
+  float last_usb_check;
+  {
+    timeval tval;
+    gettimeofday(&tval, NULL);
+    last_usb_check = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
+  }
 
   while (not killed) {
     bool connected = false;
@@ -276,8 +283,16 @@ int main(int ac, char** arg_vector) {
     //A try/catch block is set up to handle exception during quitting.
     try {
       while (agg and not killed) {
-        //Check for new USB devices by checking if new devices were added or force a check every 3 seconds.
-        if (0 < usb_find_busses() + usb_find_devices()) {
+        //Check for new USB devices every three seconds
+        float cur_time;
+        {
+          timeval tval;
+          gettimeofday(&tval, NULL);
+          cur_time = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
+        }
+        if (cur_time - last_usb_check > 3.0 and
+            0 < usb_find_busses() + usb_find_devices()) {
+          last_usb_check = cur_time;
           attachPIPs(pip_devs);
           //Remove any duplicate devices
           pip_devs.sort();
