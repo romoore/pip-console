@@ -41,8 +41,7 @@
 #include <time.h>
 
 //TODO Create lib-cppsensor so that sockets don't need to be handled here.
-#include <owl/simple_sockets.hpp>
-#include <owl/sensor_aggregator_protocol.hpp>
+#include <owl/sensor_connection.hpp>
 
 #include <iostream>
 #include <string>
@@ -255,9 +254,6 @@ int main(int ac, char** arg_vector) {
     std::cout<<"Using min RSS "<<min_rss<<'\n';
   }
 
-  //Set up a socket to connect to the aggregator.
-  ClientSocket agg(AF_INET, SOCK_STREAM, 0, server_port, server_ip);
-
   //Now connect to pip devices and send their packet data to the aggregation server.
   unsigned char msg[128];
   char* signed_msg = (char*)msg;
@@ -275,38 +271,11 @@ int main(int ac, char** arg_vector) {
   while (not killed) {
     bool connected = false;
 
-    //Set up a socket to connect to the aggregator.
-    ClientSocket agg(AF_INET, SOCK_STREAM, 0, server_port, server_ip);
-    if (agg) { 
-      //Try to get the handshake message
-      {
-        std::vector<unsigned char> handshake = sensor_aggregator::makeHandshakeMsg();
-
-        //Send the handshake message
-        agg.send(handshake);
-        std::vector<unsigned char> raw_message(handshake.size());
-        size_t length = agg.receive(raw_message);
-
-        //Check if the handshake message failed
-        if (not (length == handshake.size() and
-              std::equal(handshake.begin(), handshake.end(), raw_message.begin()) )) {
-          //Quit on failure - what we are trying to connect to is not a proper server.
-          std::cerr<<"Failure during handshake with aggregator - aborting.\n";
-          killed = true;
-        }
-        else {
-          connected = true;
-          std::cerr<<"Connected to the GRAIL aggregation server.\n";
-        }
-      }
-      //std::cerr<<"Connected to the GRAIL aggregation server.\n";
-    } else {
-      std::cerr<<"Failed to connect to the GRAIL aggregation server.\n";
-    }
+    SensorConnection agg(server_ip, server_port);
 
     //A try/catch block is set up to handle exception during quitting.
     try {
-      while (connected and not killed) {
+      while (agg and not killed) {
         //Check for new USB devices by checking if new devices were added or force a check every 3 seconds.
         if (0 < usb_find_busses() + usb_find_devices()) {
           attachPIPs(pip_devs);
@@ -405,7 +374,7 @@ int main(int ac, char** arg_vector) {
                   sd.valid = true;
                   //Send the sample data as long as it meets the min RSS constraint
                   if (sd.rss > min_rss) {
-                    agg.send(sensor_aggregator::makeSampleMsg(sd));
+                    agg.send(sd);
                   }
                 }
               }
