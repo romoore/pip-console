@@ -298,7 +298,10 @@ int main(int ac, char** arg_vector) {
           pip_devs.sort();
           pip_devs.unique();
         }
+
         if (pip_devs.size() > 0) {
+          //If there isn't any data on USB then sleep for a bit to reduce CPU load.
+          bool got_packet = false;
           for (list<usb_dev_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
             //A pip can fail up to two times in a row if this is the first time querying it.
             //If the pip fails after three retries then this pip usb_dev_handle is no longer
@@ -328,6 +331,8 @@ int main(int ac, char** arg_vector) {
             }
             //If the length of the message is equal to or greater than PACKET_LEN then this is a data packet.
             else if (PACKET_LEN <= retval) {
+              //Data is flowing over USB, continue polling
+              got_packet = true;
               //Overlay the packet struct on top of the pointer to the pip's message.
               pip_packet_t *pkt = (pip_packet_t *)buf;
 
@@ -395,6 +400,15 @@ int main(int ac, char** arg_vector) {
               }
             }
           }
+          //If there isn't any current data on USB then sleep to
+          //reduce CPU consumption
+          if (not got_packet) {
+            usleep(100);
+          }
+        }
+        else {
+          //Sleep for a second if there aren't even any pip devices
+          usleep(1000000);
         }
         //Clear dead connections
         pip_devs.remove(NULL);
