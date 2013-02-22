@@ -69,6 +69,11 @@ using std::pair;
 #define MAX_PACKET_SIZE_READ		(64 *1024 )
 #define MAX_PACKET_SIZE_WRITE		512
 
+/* various debug levels */ 
+#define DEBUG_GOOD 5 
+#define DEBUG_ALL  10
+unsigned int pip_debug ; 
+
 typedef unsigned int frequency;
 typedef unsigned char bsid;
 typedef unsigned char rating;
@@ -101,6 +106,8 @@ float toFloat(unsigned char* pipFloat) {
 
 #define RSSI_OFFSET 78
 #define CRC_OK 0x80
+
+
 
 //PIP 3 Byte ID packet structure with variable data segment.
 //3 Byte receiver ID, 21 bit transmitter id, 3 bits of parity plus up to 20 bytes of extra data.
@@ -238,12 +245,14 @@ void attachPIPs(list<usb_dev_handle*> &pip_devs) {
 }
 
 int main(int ac, char** arg_vector) {
-  if (ac != 3 and ac != 4) {
+  if (ac != 3 and ac != 4 and ac != 5 ) {
     std::cerr<<"This program requires 2 arguments,"<<
       " the ip address and the port number of the aggregation server to send data to.\n";
     std::cerr<<"An optional third argument specifies the minimum RSS for a packet to be reported.\n";
+    std::cerr<<"An optional forth argument specifies the debug level (1-10) \n";
     return 0;
   }
+
   //Get the ip address and ports of the aggregation server
   std::string server_ip(arg_vector[1]);
   int server_port = atoi(arg_vector[2]);
@@ -252,6 +261,16 @@ int main(int ac, char** arg_vector) {
   if (ac > 3) {
     min_rss = atof(arg_vector[3]);
     std::cout<<"Using min RSS "<<min_rss<<'\n';
+  }
+
+  if (ac > 4) {
+    pip_debug = atoi(arg_vector[4]);
+    if ( (pip_debug >= 1) && (pip_debug <= 10)) { 
+      std::cout<<"Using debug level RSS "<<pip_debug<<'\n';
+    } else {
+      std::cout<<"bad debug level "<<pip_debug<<'\n';   
+      pip_debug = 0;      
+    }
   }
 
   //Now connect to pip devices and send their packet data to the aggregation server.
@@ -392,6 +411,13 @@ int main(int ac, char** arg_vector) {
                   sd.rss = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
                   sd.sense_data = std::vector<unsigned char>(pkt->data, pkt->data+signed_buf[0]);
                   sd.valid = true;
+
+		  if (pip_debug > DEBUG_GOOD) { 
+		    printf("pkt tx: %0x rx: %0x rss: %0.2f data %0x \n", 
+			   netID, baseID, sd.rss, pkt->data);
+		  }
+		  
+
                   //Send the sample data as long as it meets the min RSS constraint
                   if (sd.rss > min_rss) {
                     agg.send(sd);
