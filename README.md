@@ -9,6 +9,16 @@ About
 
   Owl Platform: <https://github.com/OwlPlatform>
 
+Building
+--------
+  Building this requires the cpp-owl-common and cpp-owl-sensor libraries from
+  the owl platform github page: https://github.com/owlplatform
+
+  The build process is as follow:
+  cmake .
+  make
+  sudo make install
+
 License
 -------
  Copyright (c) 2012 Bernhard Firner and Rutgers University
