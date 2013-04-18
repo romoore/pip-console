@@ -29,7 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <usb.h>
+#include <libusb-1.0/libusb.h>
 #include <errno.h>
 #include <sys/time.h>
 
@@ -129,119 +129,105 @@ const char *serial_num_s = "1234\0";
 const int PACKET_LEN = 13;
 
 //Map of usb devices in use, accessed by the USB device number
-map<u_int8_t, bool> in_use;
+map<int, bool> in_use;
 //0 for 2.X tags, 1 for GPIP
-map<usb_dev_handle*, uint8_t> versions;
+#define OLD_PIP 0
+#define GPIP 1
+#define NOT_PIP -1
+map<struct libusb_device_handle*, int8_t> versions;
 
+//The 8051 PIP
 #define SILICON_LABS_VENDOR  ((unsigned short) (0x10C4))
 #define SILICON_LABS_PIPPROD ((unsigned char) (0x03))
 
+//The MSP430 PIP
 #define TI_LABS_VENDOR  ((unsigned short) (0x2047))
 #define TI_LABS_PIPPROD ((unsigned short) (0x0300))
 
-void attachPIPs(list<usb_dev_handle*> &pip_devs) {
-  struct usb_bus *bus = NULL; 
-  struct usb_device *dev = NULL;
+void attachPIPs(list<libusb_device_handle*> &pip_devs) {
+  //Keep track of the count of USB devices. Don't check if this doesn't change.
+  //static int last_usb_count = 0;
+  //TODO FIXME Try out that optimization (skipping the check) if this is slow
+  //An array of pointers to usb devices.
+  libusb_device **devices = NULL;
 
   /* Slot numbers used to differentiate multiple PIP USB connections. */
   int slot = 0;
 
-  /* these loops crawl the whole USB tree */
-  for (bus = usb_busses; bus != NULL; bus = bus->next) {
-    for (dev = bus->devices; dev != NULL; dev = dev->next) {
-      uint8_t version = 0;
+  //Get the device list
+  ssize_t count = libusb_get_device_list(NULL, &devices);
 
-      int found_manu, found_serial, found_prod;
-      found_manu = found_prod = found_serial = 0;
+  //Scan for new pips
+  for (int dev_idx = 0; dev_idx < count; ++dev_idx) {
+    int8_t version = NOT_PIP;
+    libusb_device* dev = devices[dev_idx];
+    libusb_device_descriptor desc;
+    if (0 >= libusb_get_device_descriptor(dev, &desc)) {
 
-      if ((unsigned short) dev->descriptor.idVendor ==  (unsigned short) TI_LABS_VENDOR)
-      {
-	  found_manu = 1;
-      	if ((unsigned short) dev->descriptor.idProduct == (unsigned short) TI_LABS_PIPPROD)
-        {	
-	   found_prod = 1; 
-	   version = 1;
-	}else{/* ignore */}
+      if (((unsigned short) desc.idVendor ==  (unsigned short) TI_LABS_VENDOR) and
+          ((unsigned short) desc.idProduct == (unsigned short) TI_LABS_PIPPROD)) {
+        version = GPIP;
       }
-      else if ((unsigned short) dev->descriptor.idVendor ==  (unsigned short) SILICON_LABS_VENDOR)
-      {
-	found_manu = 1;      	
-	if ((unsigned short) dev->descriptor.idProduct == (unsigned short) SILICON_LABS_PIPPROD)
-        {
-	    found_prod = 1; 
-	    version = 0;
-	}
+      else if (((unsigned short) desc.idVendor ==  (unsigned short) SILICON_LABS_VENDOR) and
+          ((unsigned short) desc.idProduct == (unsigned short) SILICON_LABS_PIPPROD)) {
+        version = OLD_PIP;
+      }
+      //Make the device number a combination of bus number and the address on the bus
+      int device_num = 0x100 * libusb_get_bus_number(dev) + libusb_get_device_address(dev);
 
-      }else{/* Ignore */}
-
-      //If this is a pipsqueak device that is not already opened try opening it.
-      if ( (found_manu == 1) && (found_prod == 1) && not in_use[dev->devnum] ) {
+      //See if we found a pip that is not already open
+      if (NOT_PIP != version && not in_use[device_num]) {
         ++slot;
         std::cerr<<"Connected to USB Tag Reader.\n";
-        usb_dev_handle* new_handle = usb_open(dev);
+        libusb_device_handle* new_handle;
+        int err = libusb_open(dev, &new_handle);
 
-        if (!new_handle) {
-          std::cout<<"Failed to open pipsqueak.\n";
-        }
-        else {
-          //Add the new device to the pip device list.
-          pip_devs.push_back(new_handle);
-          std::cout<<"New pipsqueak opened.\n";
-          in_use[dev->devnum] = true;
-          versions[new_handle] = version;
-
-          int retval = usb_set_configuration(pip_devs.back(), 1);
-          if (retval < 0 ) { 
-            printf("Setting configuration to 1 failed %d \n",retval);
+        if (0 != err) {
+          if (LIBUSB_ERROR_ACCESS == err) {
+            std::cout<<"Insufficient permission to open reader (try sudo).\n";
           }
+        }
+        //Otherwise getting a handle was successful
+        else {
+          //Reset the device before trying to use it
+          if (0 == libusb_reset_device(new_handle)) {
+            //Add the new device to the pip device list.
+            pip_devs.push_back(new_handle);
+            std::cout<<"New pipsqueak opened.\n";
+            in_use[device_num] = true;
+            versions[new_handle] = version;
 
-          //Retry claiming the device up to two times.
-          int retries = 2;
+            int retval = libusb_set_configuration(pip_devs.back(), 1);
+            if (0 != retval ) { 
+              printf("Setting configuration to 1 failed with error number %d \n",retval);
+            }
+            else {
+              int interface_num = 0;
 
-          int interface_num = 0;
-          while ((retval = usb_claim_interface(pip_devs.back(), interface_num)) && retries-- > 0) {
-            if (retval == -ENOMEM) {
-              std::cerr<<"usb_claim_interface failed try "<<retries<<": -ENOMEM\n";
-              std::cerr<<"This program is being run without permission to open usb devices - aborting.\n";
-              retries = 0;
-              //This failure indicates that we do not have permission to open the usb device.
-              return;
-            } else if (retval == -EBUSY) {
-#if LIBUSB_HAS_GET_DRIVER_NP
-              char drivername[256];
-              if (usb_get_driver_np(new_handle, 0, drivername, sizeof(drivername))) {
-                std::cerr<<"usb_get_driver_np failed\n";
-                retries = 0;
+              //Detach the kernel driver on linux
+              if (libusb_kernel_driver_active(pip_devs.back(), interface_num)) {
+                libusb_detach_kernel_driver(pip_devs.back(), interface_num);
               }
-              else {
-                std::cerr<<"kernel driver '"<<drivername<<"' is bound to interface 0\n";
-#else
-                std::cerr<<"kernel driver is bound to interface 0\n";
-#endif /* LIBUSB_HAS_GET_DRIVER_NP */
+              //Retry claiming the device up to two times.
+              int retries = 2;
 
-#if LIBUSB_HAS_DETACH_KERNEL_DRIVER_NP
-                if (usb_detach_kernel_driver_np(new_handle, 0)) {
-                  std::cerr<<"usb_detach_kernel_driver_np failed\n";
-                  retries = 0;
-                }
-                std::cerr<<"kernel driver successfully detached\n";
-#else
-                retries = 0;
-#endif /* LIBUSB_HAS_DETACH_KERNEL_DRIVER_NP */
-#if LIBUSB_HAS_GET_DRIVER_NP
+              while ((retval = libusb_claim_interface(pip_devs.back(), interface_num)) && retries-- > 0) {
+                ;
               }
-#endif /* LIBUSB_HAS_GET_DRIVER_NP */
-            } else {
-              std::cerr<<"usb_claim_interface failed: "<<retval<<" tries "<<retries<<"\n";
+              //int alt_setting = 0;
+              //libusb_set_interface_alt_setting(pip_devs.back(), interface_num, alt_setting);
+              if (0 == retries) {
+                std::cerr<<"usb_claim_interface failed\n";
+              }
             }
           }
         }
       }
-      if (!dev->config) { 
-        std::cout<<"Couldn't retrieve descriptors\n"; 
-      }
     }
   }
+
+  //Free the device list
+  libusb_free_device_list(devices, true);
 }
 
 int main(int ac, char** arg_vector) {
@@ -273,16 +259,16 @@ int main(int ac, char** arg_vector) {
     }
   }
 
+  //Set up a signal handler to catch interrupt signals so we can close gracefully
+  signal(SIGINT, handler);  
+
   //Now connect to pip devices and send their packet data to the aggregation server.
   unsigned char msg[128];
-  char* signed_msg = (char*)msg;
   unsigned char buf[MAX_PACKET_SIZE_READ];
-  char* signed_buf = (char*)buf;
-  list<usb_dev_handle*> pip_devs;
-  //Set up the USB
-  usb_init(); 
-  usb_find_busses(); 
-  usb_find_devices(); 
+  list<libusb_device_handle*> pip_devs;
+  //Set up the USB for a single context (pass NULL as the context)
+  libusb_init(NULL);
+  libusb_set_debug(NULL, 3);
 
   //Attach new pip devices.
   attachPIPs(pip_devs);
@@ -295,22 +281,19 @@ int main(int ac, char** arg_vector) {
   }
 
   while (not killed) {
-    bool connected = false;
-
     SensorConnection agg(server_ip, server_port);
 
     //A try/catch block is set up to handle exception during quitting.
     try {
       while (agg and not killed) {
-        //Check for new USB devices every three seconds
+        //Check for new USB devices every second
         float cur_time;
         {
           timeval tval;
           gettimeofday(&tval, NULL);
           cur_time = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
         }
-        if (cur_time - last_usb_check > 3.0 and
-            0 < usb_find_busses() + usb_find_devices()) {
+        if (cur_time - last_usb_check > 1.0) {
           last_usb_check = cur_time;
           attachPIPs(pip_devs);
           //Remove any duplicate devices
@@ -321,35 +304,49 @@ int main(int ac, char** arg_vector) {
         if (pip_devs.size() > 0) {
           //If there isn't any data on USB then sleep for a bit to reduce CPU load.
           bool got_packet = false;
-          for (list<usb_dev_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
+          for (list<libusb_device_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
             //A pip can fail up to two times in a row if this is the first time querying it.
-            //If the pip fails after three retries then this pip usb_dev_handle is no longer
+            //If the pip fails after three retries then this pip libusb_device_handle is no longer
             //valid, probably because the pip was removed from the USB.
             int retries_left = 3;
+            int transferred = -1;
             int retval = -1;
-            while (retval < 0 and retries_left > 0) {
+            while (retval != LIBUSB_ERROR_NO_DEVICE and transferred < 0 and retries_left > 0) {
               // Request the next packet from the pip
+              unsigned int timeout = 100;
               msg[0] = LM_GET_NEXT_PACKET;
-              retval = usb_bulk_write(*I, 2, signed_msg, 1, 100); 
+              retval = libusb_bulk_transfer(*I, 2 | LIBUSB_ENDPOINT_OUT, msg, 1, &transferred, timeout);
+              if (0 > retval) {
+                std::cout<<"Error requesting data: "<<strerror(retval)<<'\n';
+              }
               memset(buf, 0, MAX_PACKET_SIZE_READ);	  
 
               //Allow up to 20 extra bytes of sensor data beyond the normal packet length.
-              if(0 == versions[*I])              
-                retval = usb_bulk_read(*I, 0x81, signed_buf+1, PACKET_LEN+20, 100);
-              else
-                retval = usb_bulk_read(*I, 0x82, signed_buf+1, PACKET_LEN+20, 100);
+              if(0 == versions[*I]) {
+                retval = libusb_bulk_transfer(*I, 1 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
+                if (0 > retval) {
+                  std::cout<<"Error transferring data (old pip): "<<strerror(retval)<<'\n';
+                }
+              }
+              else {
+                retval = libusb_bulk_transfer(*I, 2 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
+                if (0 > retval) {
+                  std::cout<<"Error transferring data (gpip): "<<strerror(retval)<<'\n';
+                }
+              }
               //Fill in the length of the extra portion of the packet
-              signed_buf[0] = retval - PACKET_LEN;
+              buf[0] = transferred - PACKET_LEN;
               --retries_left;
             }
+            //TODO FIXME Check for partial transfers
             //If the pip fails 3 times in a row then it was probably disconnected.
             if (retval < 0) {
-              usb_reset(*I);
-              usb_close(*I); 
+              libusb_release_interface(*I, 0);
+              libusb_close(*I);
               *I = NULL;
             }
             //If the length of the message is equal to or greater than PACKET_LEN then this is a data packet.
-            else if (PACKET_LEN <= retval) {
+            else if (PACKET_LEN <= transferred) {
               //Data is flowing over USB, continue polling
               got_packet = true;
               //Overlay the packet struct on top of the pointer to the pip's message.
@@ -409,13 +406,13 @@ int main(int ac, char** arg_vector) {
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
                   sd.rss = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
-                  sd.sense_data = std::vector<unsigned char>(pkt->data, pkt->data+signed_buf[0]);
+                  sd.sense_data = std::vector<unsigned char>(pkt->data, pkt->data+buf[0]);
                   sd.valid = true;
 
-		  if (pip_debug > DEBUG_GOOD) { 
-		    printf("pkt tx: %0x rx: %0x rss: %0.2f data %0x \n", 
-			   netID, baseID, sd.rss, pkt->data);
-		  }
+                  if (pip_debug > DEBUG_GOOD) { 
+                    printf("pkt tx: %0x rx: %0lx rss: %0.2f data length %0x \n", 
+                        netID, baseID, sd.rss, pkt->ex_length);
+                  }
 		  
 
                   //Send the sample data as long as it meets the min RSS constraint
@@ -452,10 +449,11 @@ int main(int ac, char** arg_vector) {
   }
   std::cerr<<"Exiting\n";
   //Clean up the pip connections before exiting.
-  for (list<usb_dev_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
-    usb_reset(*I);
-    usb_close (*I); 
+  for (list<libusb_device_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
+    libusb_release_interface(*I, 0);
+    libusb_close(*I);
   }
+  libusb_exit(NULL);
 }
 
 
