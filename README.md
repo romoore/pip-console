@@ -9,11 +9,23 @@ About
 
   Owl Platform: <https://github.com/OwlPlatform>
 
+Dependencies
+------------
+  This program depends upon the libusb1.0 library. On Debian-derived systems you
+  can fetch this with the command
+
+  sudo apt-get install libusb-1.0-0-dev 
+
+  This program also depends upon the cpp-owl-common and cpp-owl-sensor packages
+  that can be found in the OwlPlatform github repository and downloaded through
+  git with the following commands:
+
+  git clone git://github.com/OwlPlatform/cpp-owl-common.git
+
+  git clone git://github.com/OwlPlatform/cpp-owl-sensor.git
+
 Building
 --------
-  Building this requires the cpp-owl-common and cpp-owl-sensor libraries from
-  the owl platform github page: https://github.com/owlplatform
-
   The build process is as follows:
 
   cmake . && make && sudo make install
