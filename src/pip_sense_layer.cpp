@@ -70,6 +70,7 @@ using std::pair;
 #define MAX_PACKET_SIZE_WRITE		512
 
 /* various debug levels */ 
+#define DEBUG_BAD 1 
 #define DEBUG_GOOD 5 
 #define DEBUG_ALL  10
 unsigned int pip_debug ; 
@@ -252,7 +253,7 @@ int main(int ac, char** arg_vector) {
   if (ac > 4) {
     pip_debug = atoi(arg_vector[4]);
     if ( (pip_debug >= 1) && (pip_debug <= 10)) { 
-      std::cout<<"Using debug level RSS "<<pip_debug<<'\n';
+      std::cout<<"Using debug level "<<pip_debug<<'\n';
     } else {
       std::cout<<"bad debug level "<<pip_debug<<'\n';   
       pip_debug = 0;      
@@ -412,6 +413,11 @@ int main(int ac, char** arg_vector) {
                   if (pip_debug > DEBUG_GOOD) { 
                     printf("pkt tx: %0x rx: %0lx rss: %0.2f data length %0x \n", 
                         netID, baseID, sd.rss, pkt->ex_length);
+                  }
+
+                  if (pip_debug > DEBUG_BAD
+                      and 0 < pkt->dropped) { 
+                    std::cout<<"USB under-read, "<<(unsigned int)pkt->dropped<<" packets dropped.\n";
                   }
 		  
 
