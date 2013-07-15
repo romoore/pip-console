@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 2.6)
-project (binary_state_solver CXX)
+project (pip-sense-layer CXX)
 
 # The version number.
 set (BSS_VERSION_MAJOR 1)

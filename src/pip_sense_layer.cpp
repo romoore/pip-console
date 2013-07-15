@@ -25,6 +25,12 @@
  *
  * @author Bernhard Firner
  ******************************************************************************/
+//TODO Create lib-cppsensor so that sockets don't need to be handled here.
+
+//These includes need to come first because of the macro defining INT64_MAX
+//TODO FIXME Are some of the old C-style includes breaking this macro?
+#include <owl/sensor_connection.hpp>
+#include <owl/world_model_protocol.hpp>
 
 #include <stdlib.h>
 #include <string.h>
@@ -39,9 +45,6 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <time.h>
-
-//TODO Create lib-cppsensor so that sockets don't need to be handled here.
-#include <owl/sensor_connection.hpp>
 
 #include <iostream>
 #include <string>
@@ -232,11 +235,20 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
 }
 
 int main(int ac, char** arg_vector) {
+  bool offline = false;
+
+  if ("offline" == std::string(arg_vector[ac-1])) {
+    //Don't look at this last argument
+    ac -= 1;
+    offline = true;
+  }
+
   if (ac != 3 and ac != 4 and ac != 5 ) {
     std::cerr<<"This program requires 2 arguments,"<<
       " the ip address and the port number of the aggregation server to send data to.\n";
     std::cerr<<"An optional third argument specifies the minimum RSS for a packet to be reported.\n";
     std::cerr<<"An optional forth argument specifies the debug level (1-10) \n";
+    std::cerr<<"If 'offline' is given as the last argument then this program will not connect to the aggregator and will instead print packets to the screen.\n";
     return 0;
   }
 
@@ -286,7 +298,7 @@ int main(int ac, char** arg_vector) {
 
     //A try/catch block is set up to handle exception during quitting.
     try {
-      while (agg and not killed) {
+      while ((offline or agg) and not killed) {
         //Check for new USB devices every second
         float cur_time;
         {
@@ -423,7 +435,32 @@ int main(int ac, char** arg_vector) {
 
                   //Send the sample data as long as it meets the min RSS constraint
                   if (sd.rss > min_rss) {
-                    agg.send(sd);
+                    //Send data to the aggregator if we are not in offline mode
+                    //Otherwise print out the packet
+                    if (not offline) {
+                      agg.send(sd);
+                    }
+                    else {
+
+                      if (0 < pkt->dropped) {
+                        std::cout<<"Dropped: "<<(unsigned int)(pkt->dropped)<<" packets."<<std::endl;
+                      }
+
+                      //TODO Add a flag to pring things out in hex
+                      bool use_hex = false;
+                      if (use_hex) {
+                        std::cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<world_model::getGRAILTime()<<'\t'<<std::hex<<sd.tx_id<<std::dec;
+                        //cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<sd.rx_timestamp<<'\t'<<std::hex<<sd.tx_id<<std::dec;
+                      }
+                      else {
+                        std::cout<<std::dec<<sd.rx_id<<"\t"<<sd.rx_timestamp<<'\t'<<sd.tx_id;
+                      }
+                      std::cout<<"\t0\t"<<sd.rss<<"\t0x00\tExtra:"<<sd.sense_data.size();
+                      for (auto I = sd.sense_data.begin(); I != sd.sense_data.end(); ++I) {
+                        std::cout<<'\t'<<(uint32_t)(*I);
+                      }
+                      std::cout<<std::endl;
+                    }
                   }
                 }
               }
