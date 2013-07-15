@@ -324,7 +324,8 @@ int main(int ac, char** arg_vector) {
             int retries_left = 3;
             int transferred = -1;
             int retval = -1;
-            while (retval != LIBUSB_ERROR_NO_DEVICE and transferred < 0 and retries_left > 0) {
+            //A return value of -99 means unknown error. In many cases we should detach and reconnect.
+            while (-99 != retval and retval != LIBUSB_ERROR_NO_DEVICE and transferred < 0 and retries_left > 0) {
               // Request the next packet from the pip
               unsigned int timeout = 100;
               msg[0] = LM_GET_NEXT_PACKET;
@@ -332,31 +333,59 @@ int main(int ac, char** arg_vector) {
               if (0 > retval) {
                 std::cout<<"Error requesting data: "<<strerror(retval)<<'\n';
               }
-              memset(buf, 0, MAX_PACKET_SIZE_READ);	  
-
-              //Allow up to 20 extra bytes of sensor data beyond the normal packet length.
-              if(0 == versions[*I]) {
-                retval = libusb_bulk_transfer(*I, 1 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
-                if (0 > retval) {
-                  std::cout<<"Error transferring data (old pip): "<<strerror(retval)<<'\n';
-                }
-              }
               else {
-                retval = libusb_bulk_transfer(*I, 2 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
-                if (0 > retval) {
-                  std::cout<<"Error transferring data (gpip): "<<strerror(retval)<<'\n';
+                memset(buf, 0, MAX_PACKET_SIZE_READ);	  
+
+                //Allow up to 20 extra bytes of sensor data beyond the normal packet length.
+                if(0 == versions[*I]) {
+                  retval = libusb_bulk_transfer(*I, 1 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
+                  if (0 > retval) {
+                    std::cout<<"Error transferring data (old pip): "<<strerror(retval)<<'\n';
+                  }
                 }
+                else {
+                  retval = libusb_bulk_transfer(*I, 2 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
+                  if (0 > retval) {
+                    std::cout<<"Error transferring data (gpip): "<<strerror(retval)<<'\n';
+                  }
+                }
+                //Fill in the length of the extra portion of the packet
+                buf[0] = transferred - PACKET_LEN;
               }
-              //Fill in the length of the extra portion of the packet
-              buf[0] = transferred - PACKET_LEN;
               --retries_left;
             }
             //TODO FIXME Check for partial transfers
             //If the pip fails 3 times in a row then it was probably disconnected.
+            //If it is still attached to the interface it will be detected again.
             if (retval < 0) {
-              libusb_release_interface(*I, 0);
-              libusb_close(*I);
-              *I = NULL;
+              //In older versions of libusb1.0 this is an unrecoverable error that destroys the library.
+              //Close everything and try again
+              if (-99 == retval) {
+                for (list<libusb_device_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
+                  libusb_release_interface(*I, 0);
+                  libusb_close(*I);
+                  *I = NULL;
+                }
+                libusb_exit(NULL);
+                std::cerr<<"An unrecoverable error in libusb has occured. The program must abort.\n";
+                return 0;
+              }
+              else if (LIBUSB_ERROR_NO_DEVICE == retval) {
+                std::cerr<<"Device disconnected\n";
+                libusb_release_interface(*I, 0);
+                libusb_close(*I);
+                *I = NULL;
+              }
+              else {
+                std::cerr<<"Trying to detach\n";
+                //libusb_reset_device (*I);
+                //libusb_clear_halt(*I, 0);
+                libusb_release_interface(*I, 0);
+                libusb_close(*I);
+                *I = NULL;
+                std::cerr<<"Detached\n";
+                std::cerr<<"At this point in time the flawed libusb probably cannot attach new devices.\n";
+              }
             }
             //If the length of the message is equal to or greater than PACKET_LEN then this is a data packet.
             else if (PACKET_LEN <= transferred) {
