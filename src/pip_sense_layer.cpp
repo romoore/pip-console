@@ -222,6 +222,7 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
               //libusb_set_interface_alt_setting(pip_devs.back(), interface_num, alt_setting);
               if (0 == retries) {
                 std::cerr<<"usb_claim_interface failed\n";
+                std::cerr<<"If the interface cannot be claimed try running with root privileges.\n";
               }
             }
           }
