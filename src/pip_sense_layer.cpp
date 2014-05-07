@@ -120,10 +120,11 @@ typedef struct {
 	unsigned char dropped   : 8; //The number of packet that were dropped if the queue overflowed.
 	unsigned int boardID    : 24;//Basestation ID
 	unsigned int time       : 32;//Timestamp in quarter microseconds.
-	unsigned int tagID      : 21;//Transmitter ID
-	unsigned int parity     : 3; //Even parity check on the transmitter ID
+	unsigned int tagID      : 24;//Transmitter ID
+//	unsigned int parity     : 3; //Even parity check on the transmitter ID
 	unsigned char rssi      : 8; //Received signal strength indicator
-	unsigned char status    : 8; //The lower 7 bits contain the link quality indicator
+	unsigned char crcok     : 1; 
+  unsigned char lqi       : 7; //The lower 7 bits contain the link quality indicator
 	unsigned char data[20];      //The optional variable length data segment
 } __attribute__((packed)) pip_packet_t;
 
@@ -396,9 +397,10 @@ int main(int ac, char** arg_vector) {
               pip_packet_t *pkt = (pip_packet_t *)buf;
 
               //Check to make sure this was a good packet.
-              if ((pkt->rssi != (int) 0) and (pkt->status != 0)) {
+              if ((pkt->rssi != (int) 0) and (pkt->lqi != 0) and (pkt->crcok)) {
                 unsigned char* data = (unsigned char*)pkt;
 
+/*
                 //Even parity check
                 bool parity_failed = false;
                 {
@@ -410,30 +412,33 @@ int main(int ac, char** arg_vector) {
                     ((unsigned int)data[11]);
 
                   int i;
+*/
                   /* XOR each group of 3 bytes until all of the 24 bits have been XORed. */
-                  for (i = 7; i >= 0; --i) {
+/*                  for (i = 7; i >= 0; --i) {
                     unsigned char triple = (packet >> (3 * i)) & 0x7;
                     p1 ^= triple >> 2;
                     p2 ^= (triple >> 1) & 0x1;
                     p3 ^= triple & 0x1;
                   }
+*/
                   /* If the end result of the XORs is three 0 bits then even parity held,
                    * which suggests that the packet data is good. Otherwise there was a bit error. */
-                  if (p1 ==  0 && p2 == 0 && p3 == 0) {
+/*                  if (p1 ==  0 && p2 == 0 && p3 == 0) {
                     parity_failed = false;
                   }
                   else {
                     parity_failed = true;
                   }
                 }
-                if (not parity_failed) {
+*/
+//                if (not parity_failed) {
                   //Now assemble a sample data variable and send it to the aggregation server.
                   SampleData sd;
                   //Calculate the tagID here instead of using be32toh since it is awkward to convert a
                   //21 bit integer to 32 bits. Multiply by 8192 and 32 instead of shifting by 13 and 5
                   //bits respectively to avoid endian issues with bit shifting.
-                  unsigned int netID = ((unsigned int)data[9] * 8192)  + ((unsigned int)data[10] * 32) +
-                    ((unsigned int)data[11] >> 3);
+                  unsigned int netID = ((unsigned int)data[9] * 65536)  + ((unsigned int)data[10] * 256) +
+                    ((unsigned int)data[11] );
                   //We do not currently use the pip's local timestamp
                   //unsigned long time = ntohl(pkt->time);
                   unsigned long baseID = ntohl(pkt->boardID << 8);
@@ -492,7 +497,7 @@ int main(int ac, char** arg_vector) {
                       std::cout<<std::endl;
                     }
                   }
-                }
+//                } // Parity check
               }
             }
           }
