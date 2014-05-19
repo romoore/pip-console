@@ -123,8 +123,8 @@ typedef struct {
 	unsigned int tagID      : 24;//Transmitter ID
 //	unsigned int parity     : 3; //Even parity check on the transmitter ID
 	unsigned char rssi      : 8; //Received signal strength indicator
-	unsigned char crcok     : 1; 
   unsigned char lqi       : 7; //The lower 7 bits contain the link quality indicator
+	unsigned char crcok     : 1; 
 	unsigned char data[20];      //The optional variable length data segment
 } __attribute__((packed)) pip_packet_t;
 
