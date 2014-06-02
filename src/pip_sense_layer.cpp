@@ -212,6 +212,7 @@ int main(int ac, char** arg_vector) {
 
   //Set up a signal handler to catch interrupt signals so we can close gracefully
   signal(SIGINT, handler);  
+  signal(SIGKILL, handler);  
 
   //Initialize SPI connection
   if (!bcm2835_init()) {
