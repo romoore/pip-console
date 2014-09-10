@@ -75,7 +75,8 @@ using std::pair;
 #define REQ_NULL 0x1
 
 //The SPI rate in microseconds
-#define SPI_RATE 60
+//#define SPI_RATE 60
+#define SPI_RATE 100
 
 //Global variable for the signal handler.
 bool killed = false;
@@ -106,8 +107,7 @@ float toFloat(unsigned char* pipFloat) {
 //3 Byte receiver ID, 21 bit transmitter id, 3 bits of parity plus up to 20 bytes of extra data.
 typedef struct {
 	unsigned char ex_length : 8; //Length of data in the optional data portion
-	unsigned char dropped   : 8; //The number of packet that were dropped if the queue overflowed.
-	unsigned int boardID    : 24;//Basestation ID
+	unsigned int boardID    : 32;//Basestation ID
 	unsigned int time       : 32;//Timestamp in quarter microseconds.
 	unsigned int tagID      : 21;//Transmitter ID
 	unsigned int parity     : 3; //Even parity check on the transmitter ID
@@ -233,7 +233,9 @@ int main(int ac, char** arg_vector) {
 		exchangeByte(REQ_DROPPED, SPI_RATE);
 		uint8_t dropped = exchangeByte(REQ_NULL, SPI_RATE);
 		if (0 < dropped) {
-			std::cout<<"Dropped "<<(unsigned int)dropped<<" packets over SPI interface.\n";
+			if (pip_debug > DEBUG_BAD) {
+				std::cout<<"SPI under-read, "<<(unsigned int)dropped<<" packets dropped.\n";
+			}
 		}
 
 		//Try to read some data. First see how long the next packet is
@@ -266,6 +268,7 @@ int main(int ac, char** arg_vector) {
 
 				//Even parity check
 				bool parity_failed = false;
+				/*
 				{
 					unsigned char p1 = 0;
 					unsigned char p2 = 0;
@@ -275,15 +278,15 @@ int main(int ac, char** arg_vector) {
 						((unsigned int)data[11]);
 
 					int i;
-					/* XOR each group of 3 bytes until all of the 24 bits have been XORed. */
+					// XOR each group of 3 bytes until all of the 24 bits have been XORed.
 					for (i = 7; i >= 0; --i) {
 						unsigned char triple = (packet >> (3 * i)) & 0x7;
 						p1 ^= triple >> 2;
 						p2 ^= (triple >> 1) & 0x1;
 						p3 ^= triple & 0x1;
 					}
-					/* If the end result of the XORs is three 0 bits then even parity held,
-					 * which suggests that the packet data is good. Otherwise there was a bit error. */
+					// If the end result of the XORs is three 0 bits then even parity held,
+					// which suggests that the packet data is good. Otherwise there was a bit error.
 					if (p1 ==  0 && p2 == 0 && p3 == 0) {
 						parity_failed = false;
 					}
@@ -291,14 +294,16 @@ int main(int ac, char** arg_vector) {
 						parity_failed = true;
 					}
 				}
+				*/
 				if (true or not parity_failed) {
 					//Now assemble a sample data variable and send it to the aggregation server.
 					SampleData sd;
 					//Calculate the tagID here instead of using be32toh since it is awkward to convert a
 					//21 bit integer to 32 bits. Multiply by 8192 and 32 instead of shifting by 13 and 5
 					//bits respectively to avoid endian issues with bit shifting.
-					unsigned int netID = ((unsigned int)data[9] * 8192)  + ((unsigned int)data[10] * 32) +
-						((unsigned int)data[11] >> 3);
+					//unsigned int netID = ((unsigned int)data[9] * 8192)  + ((unsigned int)data[10] * 32) +
+						//((unsigned int)data[11] >> 3);
+					unsigned int netID = pkt->tagID << 3  | pkt->parity;
 					//We do not currently use the pip's local timestamp
 					//unsigned long time = ntohl(pkt->time);
 					unsigned long baseID = ntohl(pkt->boardID << 8);
@@ -322,12 +327,6 @@ int main(int ac, char** arg_vector) {
 								netID, baseID, sd.rss, pkt->ex_length);
 					}
 
-					if (pip_debug > DEBUG_BAD
-							and 0 < pkt->dropped) { 
-						std::cout<<"USB under-read, "<<(unsigned int)pkt->dropped<<" packets dropped.\n";
-					}
-
-
 					//Send the sample data as long as it meets the min RSS constraint
 					if (true or sd.rss > min_rss) {
 						//Send data to the aggregator if we are not in offline mode
@@ -336,10 +335,6 @@ int main(int ac, char** arg_vector) {
 							agg.send(sd);
 						}
 						else {
-
-							if (0 < pkt->dropped) {
-								std::cout<<"Dropped: "<<(unsigned int)(pkt->dropped)<<" packets."<<std::endl;
-							}
 
 							//TODO Add a flag to pring things out in hex
 							bool use_hex = false;
