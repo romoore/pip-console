@@ -109,8 +109,7 @@ typedef struct {
 	unsigned char ex_length : 8; //Length of data in the optional data portion
 	unsigned int boardID    : 32;//Basestation ID
 	unsigned int time       : 32;//Timestamp in quarter microseconds.
-	unsigned int tagID      : 21;//Transmitter ID
-	unsigned int parity     : 3; //Even parity check on the transmitter ID
+	unsigned int tagID      : 24;//Transmitter ID
 	unsigned char rssi      : 8; //Received signal strength indicator
 	unsigned char status    : 8; //The lower 7 bits contain the link quality indicator
 	unsigned char data[20];      //The optional variable length data segment
@@ -178,14 +177,13 @@ int main(int ac, char** arg_vector) {
     //Don't look at this last argument
     ac -= 1;
     offline = true;
-	pip_debug = DEBUG_ALL;
   }
 
   if (ac != 3 and ac != 4 and ac != 5 ) {
     std::cerr<<"This program requires 2 arguments,"<<
       " the ip address and the port number of the aggregation server to send data to.\n";
     std::cerr<<"An optional third argument specifies the minimum RSS for a packet to be reported.\n";
-    std::cerr<<"An optional forth argument specifies the debug level (1-10) \n";
+    std::cerr<<"An optional fourth argument specifies the debug level (1-10) \n";
     std::cerr<<"If 'offline' is given as the last argument then this program will not connect to the aggregator and will instead print packets to the screen.\n";
     return 0;
   }
@@ -209,6 +207,9 @@ int main(int ac, char** arg_vector) {
       pip_debug = 0;      
     }
   }
+
+  //TODO Add a flag to pring things out in hex
+  bool use_hex = false;
 
   //Set up a signal handler to catch interrupt signals so we can close gracefully
   signal(SIGINT, handler);  
@@ -244,7 +245,6 @@ int main(int ac, char** arg_vector) {
 
 		//Verify that there is a packet to read
 		if (0 < transferred and transferred <= MAX_PACKET_SIZE_READ) {
-			std::cout<<"Reading packet of length "<<(unsigned int)transferred<<'\n';
 			uint8_t buf[MAX_PACKET_SIZE_READ];
 			memset(buf, 0, MAX_PACKET_SIZE_READ);	  
 			//Get the packet
@@ -264,49 +264,16 @@ int main(int ac, char** arg_vector) {
 			pip_packet_t *pkt = (pip_packet_t *)buf;
 			//Check to make sure this was a good packet.
 			if (((pkt->rssi != (int) 0) and (pkt->status != 0))) {
-				unsigned char* data = (unsigned char*)pkt;
-
-				//Even parity check
-				bool parity_failed = false;
-				/*
-				{
-					unsigned char p1 = 0;
-					unsigned char p2 = 0;
-					unsigned char p3 = 0;
-					unsigned long packet = ((unsigned int)data[9]  << 16) |
-						((unsigned int)data[10] <<  8) |
-						((unsigned int)data[11]);
-
-					int i;
-					// XOR each group of 3 bytes until all of the 24 bits have been XORed.
-					for (i = 7; i >= 0; --i) {
-						unsigned char triple = (packet >> (3 * i)) & 0x7;
-						p1 ^= triple >> 2;
-						p2 ^= (triple >> 1) & 0x1;
-						p3 ^= triple & 0x1;
-					}
-					// If the end result of the XORs is three 0 bits then even parity held,
-					// which suggests that the packet data is good. Otherwise there was a bit error.
-					if (p1 ==  0 && p2 == 0 && p3 == 0) {
-						parity_failed = false;
-					}
-					else {
-						parity_failed = true;
-					}
-				}
-				*/
-				if (true or not parity_failed) {
+				//Process packet if its CRC is OK
+				if (pkt->status & CRC_OK) {
 					//Now assemble a sample data variable and send it to the aggregation server.
 					SampleData sd;
-					//Calculate the tagID here instead of using be32toh since it is awkward to convert a
-					//21 bit integer to 32 bits. Multiply by 8192 and 32 instead of shifting by 13 and 5
-					//bits respectively to avoid endian issues with bit shifting.
-					//unsigned int netID = ((unsigned int)data[9] * 8192)  + ((unsigned int)data[10] * 32) +
-						//((unsigned int)data[11] >> 3);
-					unsigned int netID = pkt->tagID << 3  | pkt->parity;
+					//Get the transmitter and receiver IDs, converting endianness
+					//unsigned int netID = ntohl(pkt->tagID << 8);
+					unsigned int netID = (buf[9]<<16) + (buf[10]<<8) + buf[11];
+					unsigned long baseID = ntohl(pkt->boardID);
 					//We do not currently use the pip's local timestamp
 					//unsigned long time = ntohl(pkt->time);
-					unsigned long baseID = ntohl(pkt->boardID << 8);
 
 					//The physical layer of a pipsqueak device is 1
 					sd.physical_layer = 1;
@@ -319,7 +286,7 @@ int main(int ac, char** arg_vector) {
 					//Convert from one byte value to a float for receive signal
 					//strength as described in the TI/chipcon Design Note DN505 on cc1100
 					sd.rss = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
-					sd.sense_data = std::vector<unsigned char>(pkt->data, pkt->data+((unsigned char*)buf)[0]);
+					sd.sense_data = std::vector<unsigned char>(pkt->data, pkt->data+pkt->ex_length);
 					sd.valid = true;
 
 					if (pip_debug > DEBUG_GOOD) { 
@@ -328,7 +295,7 @@ int main(int ac, char** arg_vector) {
 					}
 
 					//Send the sample data as long as it meets the min RSS constraint
-					if (true or sd.rss > min_rss) {
+					if (sd.rss > min_rss) {
 						//Send data to the aggregator if we are not in offline mode
 						//Otherwise print out the packet
 						if (not offline) {
@@ -336,18 +303,16 @@ int main(int ac, char** arg_vector) {
 						}
 						else {
 
-							//TODO Add a flag to pring things out in hex
-							bool use_hex = false;
+							//Print out the packet (in hex or decimal)
 							if (use_hex) {
-								std::cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<world_model::getGRAILTime()<<'\t'<<std::hex<<sd.tx_id<<std::dec;
-								//cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<sd.rx_timestamp<<'\t'<<std::hex<<sd.tx_id<<std::dec;
+								std::cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<sd.rx_timestamp<<'\t'<<std::hex<<sd.tx_id<<std::dec;
 							}
 							else {
-								std::cout<<std::dec<<sd.rx_id<<"\t"<<sd.rx_timestamp<<'\t'<<sd.tx_id;
+								std::cout<<std::dec<<baseID<<"\t"<<sd.rx_timestamp<<'\t'<<std::dec<<netID;
 							}
 							std::cout<<"\t0\t"<<sd.rss<<"\t0x00\tExtra:"<<sd.sense_data.size();
 							for (auto I = sd.sense_data.begin(); I != sd.sense_data.end(); ++I) {
-								std::cout<<'\t'<<(uint32_t)(*I);
+								std::cout<<'\t'<<std::hex<<(uint32_t)(*I);
 							}
 							std::cout<<std::endl;
 						}
