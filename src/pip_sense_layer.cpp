@@ -51,11 +51,10 @@
 #include <algorithm>
 #include <stdexcept>
 
-//Include GPIO and SPI library for the Pi
-#include <bcm2835.h>
-
 //Handle interrupt signals to exit cleanly.
 #include <signal.h>
+
+#include "spi.h"
 
 using std::string;
 using std::list;
@@ -68,15 +67,6 @@ using std::pair;
 #define DEBUG_BAD 1 
 #define DEBUG_GOOD 5 
 #define DEBUG_ALL  10
-
-#define REQ_DROPPED 0xFC
-#define REQ_PACKET 0xFF
-#define REQ_REALIGN 0xFD
-#define REQ_NULL 0x1
-
-//The SPI rate in microseconds
-//#define SPI_RATE 60
-#define SPI_RATE 100
 
 //Global variable for the signal handler.
 bool killed = false;
@@ -114,60 +104,6 @@ typedef struct {
 	unsigned char status    : 8; //The lower 7 bits contain the link quality indicator
 	unsigned char data[20];      //The optional variable length data segment
 } __attribute__((packed)) pip_packet_t;
-
-//Bit banging SPI code
-//TODO Migrate into own file
-
-//GPIO 10 is MOSI, pin is 19
-//GPIO  9 is MISO, pin is 21
-//GPIO 11 is SCLK, pin is 23
-#define MOSI RPI_GPIO_P1_19
-#define MISO RPI_GPIO_P1_21
-#define SCLK RPI_GPIO_P1_23
-
-void setupSPI() {
-	//Use bcm2835_gpio_fsel(uint8_t pin, uint8_t mode) to set pin modes
-	//Modes are BCM2835_GPIO_FSEL_INPT for input
-	//Modes are BCM2835_GPIO_FSEL_OUTP for output
-	bcm2835_gpio_fsel(SCLK, BCM2835_GPIO_FSEL_OUTP);
-	bcm2835_gpio_fsel(MOSI, BCM2835_GPIO_FSEL_OUTP);
-	bcm2835_gpio_fsel(MISO, BCM2835_GPIO_FSEL_INPT);
-
-	//Clear the two output pins
-	bcm2835_gpio_clr(SCLK);
-	bcm2835_gpio_clr(MOSI);
-}
-
-//Sends and reads a bit, delaying clock_period/2 milliseconds after writing and again after reading
-//Going to change data on falling edges, so read on rising edges
-uint8_t exchangeBit(uint8_t value, unsigned int clock_period) {
-	//Go low and set value, then wait a period and go high
-	//Delay half a clock cycle since we may have just gone high from a previous call
-	bcm2835_delayMicroseconds(clock_period / 2);
-	bcm2835_gpio_write(SCLK, LOW);
-	//Change output on falling edge
-	if (0 == value) {
-		bcm2835_gpio_write(MOSI, LOW);
-	}
-	else {
-		bcm2835_gpio_write(MOSI, HIGH);
-	}
-	bcm2835_delayMicroseconds(clock_period / 2);
-	bcm2835_gpio_write(SCLK, HIGH);
-	//Read data from the slave
-	uint8_t bit = bcm2835_gpio_lev(MISO);
-	return bit;
-}
-
-uint8_t exchangeByte(uint8_t byte, unsigned int clock_period) {
-	uint8_t value = 0;
-	for (int i = 7; i >= 0; --i) {
-		if (HIGH == exchangeBit(0x1 & (byte >> i), clock_period)) {
-			value |= 1 << i;
-		}
-	}
-	return value;
-}
 
 int main(int ac, char** arg_vector) {
   bool offline = false;
@@ -254,11 +190,13 @@ int main(int ac, char** arg_vector) {
 			}
 
 			//TODO FIXME Debugging received packet
+			/*
 			std::cout<<"Packet is: ";
 			for (int i = 0; i < transferred; ++i) {
 				std::cout<<'\t'<<std::hex<<(uint32_t)buf[i];
 			}
 			std::cout<<'\n';
+			*/
 			
 			//Overlay the packet struct on top of the pointer to the rpip's message.
 			pip_packet_t *pkt = (pip_packet_t *)buf;

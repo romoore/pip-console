@@ -1,5 +1,6 @@
 SET(SourceFiles
   pip_sense_layer.cpp
+  spi.cpp
 )
 
 add_executable (pip_sense_layer ${SourceFiles})
