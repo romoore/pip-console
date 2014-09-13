@@ -20,8 +20,8 @@
 #define SCLK RPI_GPIO_P1_23
 
 #define REQ_DROPPED 0xFC
-#define REQ_PACKET 0xFF
 #define REQ_REALIGN 0xFD
+#define REQ_PACKET 0xFE
 #define REQ_NULL 0x1
 
 //The SPI rate in microseconds
@@ -29,6 +29,8 @@
 #define SPI_RATE 100
 
 void setupSPI();
+
+void tearDownSPI();
 
 //Sends and reads a bit, delaying clock_period/2 milliseconds after writing and again after reading
 //Going to change data on falling edges, so read on rising edges

@@ -261,7 +261,7 @@ int main(int ac, char** arg_vector) {
 		//Size seems too large, read from SPI to empty the buffer
 		else if (transferred >= MAX_PACKET_SIZE_READ) {
 			std::cerr<<"SPI seems mis-aligned (got packet of length "<<(unsigned int)transferred<<"), trying to realign\n";
-			while (0 != exchangeByte(REQ_REALIGN, SPI_RATE));
+			while (0 != exchangeByte(REQ_REALIGN, SPI_RATE) and not killed);
 			std::cerr<<"SPI re-aligned\n";
 		}
 		//No data, so try to sleep to reduce CPU consumption
@@ -283,7 +283,7 @@ int main(int ac, char** arg_vector) {
   std::cerr<<"Exiting\n";
 
   //Turn off SPI pins
-  //bcm2835_spi_end();
+  tearDownSPI();
 
   //Normal program halt
   return 0;
