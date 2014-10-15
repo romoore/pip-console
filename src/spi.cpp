@@ -30,7 +30,7 @@ void setupSPI() {
 	//bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_1024);
 	//bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_2048);
 	//About 30.5kHz
-	bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_8192);
+	//bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_8192);
 	//16KHz
 	bcm2835_spi_setClockDivider(BCM2835_SPI_CLOCK_DIVIDER_16384);
 	bcm2835_spi_setDataMode(BCM2835_SPI_MODE0);
