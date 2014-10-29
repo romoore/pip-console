@@ -204,6 +204,25 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
 
             int retval = libusb_set_configuration(pip_devs.back(), 1);
             if (0 != retval ) { 
+              switch(retval){
+                case LIBUSB_ERROR_NOT_FOUND:
+                  printf("Device not found.\n");
+                  break;
+                  case LIBUSB_ERROR_BUSY: 
+                  printf("Device is busy.\n");
+                  retval = libusb_detach_kernel_driver(pip_devs.back(),0);
+                  if(0 != retval){
+                    printf("Unable to detach kernel driver with error number %d.\n",retval);
+                  }
+                  retval = libusb_set_configuration(pip_devs.back(),1);
+                  break;
+                  case LIBUSB_ERROR_NO_DEVICE:
+                  printf("No device present.\n");
+                  break;
+                  default:
+                  printf("Unknown error.\n");
+                  break;
+              }
               printf("Setting configuration to 1 failed with error number %d \n",retval);
             }
             else {
