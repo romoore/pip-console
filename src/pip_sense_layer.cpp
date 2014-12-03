@@ -53,6 +53,9 @@
 #include <algorithm>
 #include <stdexcept>
 
+// Ncurses library for fancy printing
+#include <ncurses.h>
+
 //Handle interrupt signals to exit cleanly.
 #include <signal.h>
 
@@ -72,11 +75,13 @@ using std::pair;
 #define MAX_PACKET_SIZE_READ		(64 *1024 )
 #define MAX_PACKET_SIZE_WRITE		512
 
-/* various debug levels */ 
-#define DEBUG_BAD 1 
-#define DEBUG_GOOD 5 
-#define DEBUG_ALL  10
-unsigned int pip_debug ; 
+#define COLOR_RSSI_LOW 1
+#define COLOR_RSSI_MED 2
+#define COLOR_RSSI_HIGH 3
+
+#define COLOR_LIGHT_LOW 4
+#define COLOR_LIGHT_MED 5
+#define COLOR_LIGHT_HIGH 6
 
 typedef unsigned int frequency;
 typedef unsigned char bsid;
@@ -88,17 +93,22 @@ bool killed = false;
 void handler(int signal) {
   psignal( signal, "Received signal ");
   if (killed) {
-    std::cerr<<"Aborting.\n";
+//    std::cerr<<"Aborting.\n";
     // This is the second time we've received the interrupt, so just exit.
     exit(-1);
   }
-  std::cerr<<"Shutting down...\n";
+//  std::cerr<<"Shutting down...\n";
   killed = true;
 }
 
 
 float toFloat(unsigned char* pipFloat) {
     return ((float)pipFloat[0] * 0x100 + (float)pipFloat[1] + (float)pipFloat[2] / (float)0x100);
+}
+
+void cleanShutdown(){
+  libusb_exit(NULL);
+  endwin(); // Stop ncurses
 }
 
 /* #defines of the commands to the pipsqueak tag */
@@ -126,7 +136,19 @@ typedef struct {
   unsigned char lqi       : 7; //The lower 7 bits contain the link quality indicator
 	unsigned char crcok     : 1; 
 	unsigned char data[20];      //The optional variable length data segment
+  float rss;
 } __attribute__((packed)) pip_packet_t;
+
+typedef struct {
+  timeval time;
+  int tagID;
+  float rssi;
+  float tempC;
+  float rh;
+  int light;
+  float batteryMv;
+  int batteryJ;
+} pip_sample_t;
 
 //USB PIPs' vendor ID and strings
 const char *silicon_labs_s = "Silicon Labs\0";
@@ -148,6 +170,184 @@ map<struct libusb_device_handle*, int8_t> versions;
 //The MSP430 PIP
 #define TI_LABS_VENDOR  ((unsigned short) (0x2047))
 #define TI_LABS_PIPPROD ((unsigned short) (0x0300))
+
+map<int,pip_sample_t> latestSample;
+
+int highlightId = -1;
+
+
+void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
+  if(data.size() == 0){
+    return;
+  }
+  
+  unsigned char hdr = data[0];
+  int i = 1;
+  s.tempC = -300;
+  s.rh = -300;
+  s.light = -1;
+  if(hdr & 0x01){
+    s.tempC = data[i]>>1;
+    ++i;
+  }
+  if(hdr & 0x02){
+    s.tempC = ((data[i]<<4) + (data[i+1]/16.0));
+    i += 2;
+  }
+
+  if(hdr & 0x04){
+    s.light = data[i];
+    ++i;
+  }
+
+  if(hdr & 0x08){
+    s.tempC = ((data[i]<<4) + (data[i+1]/16.0));
+    i += 2;
+    s.rh = ((data[i]<<4) + (data[i+1]/16.0));
+    i += 2;
+  }
+
+  if(hdr & 0x10){
+    i += 2;
+  }
+
+  if(hdr & 0x20){
+    i += 6;
+  }
+  if(hdr & 0x40){
+    s.batteryMv = ((data[i]<<8) + (data[i+1]))/1000.0;
+    i += 2;
+    s.batteryJ = ((data[i]<<8) + (data[i+1]));
+    i += 2;
+  }
+
+}
+
+void updateHighlight(int userKey){
+  switch(userKey){
+    case KEY_UP:
+      {
+        map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
+        if(currIt != latestSample.begin()){
+          currIt--;
+          if(currIt != latestSample.begin()){
+            highlightId = currIt->first;
+          }
+        }
+        refresh();
+      }
+      break;
+    case KEY_DOWN:
+      {
+        map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
+        if(currIt != latestSample.end()){
+          currIt++;
+          if(currIt != latestSample.end()){
+            highlightId = currIt->first;
+          } 
+        } 
+        refresh();
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+void updateState(pip_sample_t& sd){
+  pip_sample_t& storedData = latestSample[sd.tagID];
+  storedData.time = sd.time;
+  storedData.tagID = sd.tagID;
+  storedData.time = sd.time;
+  storedData.rssi = sd.rssi;
+  storedData.tempC = sd.tempC;
+  storedData.rh = sd.rh;
+  storedData.light = sd.light;
+//  latestSample[storedData.tagID] = storedData;
+  
+  move(0,0);
+  printw("  Tag   RSSI    Temp (C)   Rel. Hum. Lt  Batt   Joul  Age");
+  int row = 1;
+
+  int highlightRow = -1;
+  int maxx, maxy;
+  getmaxyx(stdscr,maxy,maxx);
+
+
+  int offsetRow = 0;
+  int listSize = latestSample.size();
+  
+  // If scrolling is needed
+  if(listSize > maxy and highlightRow >= 0){
+
+    map<int,pip_sample_t>::iterator hIter = latestSample.find(highlightId);
+    if(hIter != latestSample.end()){
+      offsetRow = highlightRow = std::distance(hIter,latestSample.end());
+    }
+  }
+  map<int,pip_sample_t>::iterator pIter = latestSample.begin();
+
+  for(; pIter != latestSample.end(); ++pIter,++row){
+    if(row < offsetRow){
+      continue;
+    }else if(row >= maxy){
+      break;
+    }
+    
+    pip_sample_t pkt = pIter->second;
+    move(row,0);
+    if(pkt.tagID == highlightId){
+      printw("* ");
+    }else {
+      printw("  ");
+    }
+    printw("%04d  ",pkt.tagID);
+    int color = COLOR_RSSI_MED;
+    if(pkt.rssi < -90.0){
+      color = COLOR_RSSI_LOW;
+    }else if(pkt.rssi > -60.0){
+      color = COLOR_RSSI_HIGH;
+    }
+    attron(COLOR_PAIR(color));
+    printw("%5.2f",pkt.rssi);
+    attroff(COLOR_PAIR(color));
+    if(pkt.tempC > -300){
+      printw("  %7.3f C",pkt.tempC);
+    }else{
+      printw("  -------  ");
+    }
+    if(pkt.rh > -300){
+      printw("  %7.3f %% ",pkt.rh);
+    }else {
+      printw("  -------   ");
+    }
+    if(pkt.light >= 0){
+      color = COLOR_LIGHT_MED;
+      if(pkt.light < 0x40){
+        color = COLOR_LIGHT_LOW;
+      }else if(pkt.light > 0xB0){
+        color = COLOR_LIGHT_HIGH;
+      }
+      attron(COLOR_PAIR(color));
+      printw("%02x",pkt.light);
+      attroff(COLOR_PAIR(color));
+    }else {
+      printw("--");
+    }
+
+    printw("  %4.3f  %4d",pkt.batteryMv,pkt.batteryJ);
+    timeval tv;
+    gettimeofday(&tv, NULL);
+    int ageSec = tv.tv_sec - pkt.time.tv_sec;
+    int hr = ageSec / 3600;
+    ageSec %= 3600;
+    int m = ageSec / 60;
+    int s = ageSec % 60;
+
+    printw("  %3dh %2dm %2ds",hr,m,s);
+  }
+  refresh();
+}
 
 void attachPIPs(list<libusb_device_handle*> &pip_devs) {
   //Keep track of the count of USB devices. Don't check if this doesn't change.
@@ -183,13 +383,13 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
       //See if we found a pip that is not already open
       if (NOT_PIP != version && not in_use[device_num]) {
         ++slot;
-        std::cerr<<"Connected to USB Tag Reader.\n";
+//        std::cerr<<"Connected to USB Tag Reader.\n";
         libusb_device_handle* new_handle;
         int err = libusb_open(dev, &new_handle);
 
         if (0 != err) {
           if (LIBUSB_ERROR_ACCESS == err) {
-            std::cout<<"Insufficient permission to open reader (try sudo).\n";
+//            std::cout<<"Insufficient permission to open reader (try sudo).\n";
           }
         }
         //Otherwise getting a handle was successful
@@ -198,7 +398,7 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
           if (0 == libusb_reset_device(new_handle)) {
             //Add the new device to the pip device list.
             pip_devs.push_back(new_handle);
-            std::cout<<"New pipsqueak opened.\n";
+//            std::cout<<"New pipsqueak opened.\n";
             in_use[device_num] = true;
             versions[new_handle] = version;
 
@@ -206,24 +406,24 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
             if (0 != retval ) { 
               switch(retval){
                 case LIBUSB_ERROR_NOT_FOUND:
-                  printf("Device not found.\n");
+                  //printf("Device not found.\n");
                   break;
                   case LIBUSB_ERROR_BUSY: 
-                  printf("Device is busy.\n");
+                  //printf("Device is busy.\n");
                   retval = libusb_detach_kernel_driver(pip_devs.back(),0);
                   if(0 != retval){
-                    printf("Unable to detach kernel driver with error number %d.\n",retval);
+                    //printf("Unable to detach kernel driver with error number %d.\n",retval);
                   }
                   retval = libusb_set_configuration(pip_devs.back(),1);
                   break;
                   case LIBUSB_ERROR_NO_DEVICE:
-                  printf("No device present.\n");
+                  //printf("No device present.\n");
                   break;
                   default:
-                  printf("Unknown error.\n");
+                  //printf("Unknown error.\n");
                   break;
               }
-              printf("Setting configuration to 1 failed with error number %d \n",retval);
+              //printf("Setting configuration to 1 failed with error number %d \n",retval);
             }
             else {
               int interface_num = 0;
@@ -241,8 +441,8 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
               //int alt_setting = 0;
               //libusb_set_interface_alt_setting(pip_devs.back(), interface_num, alt_setting);
               if (0 == retries) {
-                std::cerr<<"usb_claim_interface failed\n";
-                std::cerr<<"If the interface cannot be claimed try running with root privileges.\n";
+//                std::cerr<<"usb_claim_interface failed\n";
+//                std::cerr<<"If the interface cannot be claimed try running with root privileges.\n";
               }
             }
           }
@@ -255,44 +455,25 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
   libusb_free_device_list(devices, true);
 }
 
+
 int main(int ac, char** arg_vector) {
-  bool offline = false;
 
-  if ("offline" == std::string(arg_vector[ac-1])) {
-    //Don't look at this last argument
-    ac -= 1;
-    offline = true;
-  }
+  // Prepare ncurses
+  initscr();  // Start ncurses mode
+  halfdelay(1); // Allow character reads to end after 100ms
+//  raw();      // No line buffering
+  keypad(stdscr,TRUE); // Support F1, F2, arrow keys
+  noecho();   // Don't show user input
+  start_color();// Use color!
 
-  if (ac != 3 and ac != 4 and ac != 5 ) {
-    std::cerr<<"This program requires 2 arguments,"<<
-      " the ip address and the port number of the aggregation server to send data to.\n";
-    std::cerr<<"An optional third argument specifies the minimum RSS for a packet to be reported.\n";
-    std::cerr<<"An optional forth argument specifies the debug level (1-10) \n";
-    std::cerr<<"If 'offline' is given as the last argument then this program will not connect to the aggregator and will instead print packets to the screen.\n";
-    return 0;
-  }
-
-  //Get the ip address and ports of the aggregation server
-  std::string server_ip(arg_vector[1]);
-  int server_port = atoi(arg_vector[2]);
-
-  float min_rss = -600.0;
-  if (ac > 3) {
-    min_rss = atof(arg_vector[3]);
-    std::cout<<"Using min RSS "<<min_rss<<'\n';
-  }
-
-  if (ac > 4) {
-    pip_debug = atoi(arg_vector[4]);
-    if ( (pip_debug >= 1) && (pip_debug <= 10)) { 
-      std::cout<<"Using debug level "<<pip_debug<<'\n';
-    } else {
-      std::cout<<"bad debug level "<<pip_debug<<'\n';   
-      pip_debug = 0;      
-    }
-  }
-
+  init_pair(COLOR_RSSI_LOW,COLOR_RED, COLOR_BLACK);
+  init_pair(COLOR_RSSI_MED, COLOR_YELLOW, COLOR_BLACK);
+  init_pair(COLOR_RSSI_HIGH, COLOR_GREEN, COLOR_BLACK);
+  init_pair(COLOR_LIGHT_LOW, COLOR_WHITE, COLOR_BLACK);
+  init_pair(COLOR_LIGHT_MED, COLOR_BLACK, COLOR_YELLOW);
+  init_pair(COLOR_LIGHT_HIGH, COLOR_BLACK, COLOR_WHITE);
+  
+  
   //Set up a signal handler to catch interrupt signals so we can close gracefully
   signal(SIGINT, handler);  
 
@@ -315,11 +496,10 @@ int main(int ac, char** arg_vector) {
   }
 
   while (not killed) {
-    SensorConnection agg(server_ip, server_port);
 
     //A try/catch block is set up to handle exception during quitting.
     try {
-      while ((offline or agg) and not killed) {
+      while (not killed) {
         //Check for new USB devices every second
         float cur_time;
         {
@@ -327,13 +507,21 @@ int main(int ac, char** arg_vector) {
           gettimeofday(&tval, NULL);
           cur_time = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
         }
-        if (cur_time - last_usb_check > 1.0) {
+        if(cur_time - last_usb_check > 0.2){
+          int userKey = getch();
+          std::cout << "Key: " << userKey << std::endl;
+          if(userKey != ERR){
+            updateHighlight(userKey);
+          }
+        }
+        if (cur_time - last_usb_check > 5.0) {
           last_usb_check = cur_time;
           attachPIPs(pip_devs);
           //Remove any duplicate devices
           pip_devs.sort();
           pip_devs.unique();
         }
+
 
         if (pip_devs.size() > 0) {
           //If there isn't any data on USB then sleep for a bit to reduce CPU load.
@@ -352,7 +540,7 @@ int main(int ac, char** arg_vector) {
               msg[0] = LM_GET_NEXT_PACKET;
               retval = libusb_bulk_transfer(*I, 2 | LIBUSB_ENDPOINT_OUT, msg, 1, &transferred, timeout);
               if (0 > retval) {
-                std::cout<<"Error requesting data: "<<strerror(retval)<<'\n';
+//                std::cout<<"Error requesting data: "<<strerror(retval)<<'\n';
               }
               else {
                 memset(buf, 0, MAX_PACKET_SIZE_READ);	  
@@ -361,13 +549,13 @@ int main(int ac, char** arg_vector) {
                 if(0 == versions[*I]) {
                   retval = libusb_bulk_transfer(*I, 1 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
                   if (0 > retval) {
-                    std::cout<<"Error transferring data (old pip): "<<strerror(retval)<<'\n';
+//                    std::cout<<"Error transferring data (old pip): "<<strerror(retval)<<'\n';
                   }
                 }
                 else {
                   retval = libusb_bulk_transfer(*I, 2 | LIBUSB_ENDPOINT_IN, buf+1, PACKET_LEN+20, &transferred, timeout);
                   if (0 > retval) {
-                    std::cout<<"Error transferring data (gpip): "<<strerror(retval)<<'\n';
+//                    std::cout<<"Error transferring data (gpip): "<<strerror(retval)<<'\n';
                   }
                 }
                 //Fill in the length of the extra portion of the packet
@@ -387,12 +575,11 @@ int main(int ac, char** arg_vector) {
                   libusb_close(*I);
                   *I = NULL;
                 }
-                libusb_exit(NULL);
-                std::cerr<<"An unrecoverable error in libusb has occured. The program must abort.\n";
+                cleanShutdown();
                 return 0;
               }
               else if (LIBUSB_ERROR_NO_DEVICE == retval) {
-                std::cerr<<"Device disconnected\n";
+//                std::cerr<<"Device disconnected\n";
                 libusb_release_interface(*I, 0);
                 libusb_close(*I);
                 *I = NULL;
@@ -452,7 +639,6 @@ int main(int ac, char** arg_vector) {
 */
 //                if (not parity_failed) {
                   //Now assemble a sample data variable and send it to the aggregation server.
-                  SampleData sd;
                   //Calculate the tagID here instead of using be32toh since it is awkward to convert a
                   //21 bit integer to 32 bits. Multiply by 8192 and 32 instead of shifting by 13 and 5
                   //bits respectively to avoid endian issues with bit shifting.
@@ -461,62 +647,21 @@ int main(int ac, char** arg_vector) {
                   //We do not currently use the pip's local timestamp
                   //unsigned long time = ntohl(pkt->time);
                   unsigned long baseID = ntohl(pkt->boardID << 8);
+                  pip_sample_t s;
+                  s.tagID = netID;
 
-                  //The physical layer of a pipsqueak device is 1
-                  sd.physical_layer = 1;
-                  sd.tx_id = netID;
-                  sd.rx_id = baseID;
                   //Set this to the real timestamp, milliseconds since 1970
                   timeval tval;
                   gettimeofday(&tval, NULL);
-                  sd.rx_timestamp = tval.tv_sec*1000 + tval.tv_usec/1000;
+                  s.time = tval;
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
-                  sd.rss = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
-                  sd.sense_data = std::vector<unsigned char>(pkt->data, pkt->data+buf[0]);
-                  sd.valid = true;
+                  s.rssi = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
+                  std::vector<unsigned char> dat(pkt->data, pkt->data+buf[0]);
+                  parseData(dat,s);
+                  
+                  updateState(s);
 
-                  if (pip_debug > DEBUG_GOOD) { 
-                    printf("pkt tx: %0x rx: %0lx rss: %0.2f data length %0x \n", 
-                        netID, baseID, sd.rss, pkt->ex_length);
-                  }
-
-                  if (pip_debug > DEBUG_BAD
-                      and 0 < pkt->dropped) { 
-                    std::cout<<"USB under-read, "<<(unsigned int)pkt->dropped<<" packets dropped.\n";
-                  }
-		  
-
-                  //Send the sample data as long as it meets the min RSS constraint
-                  if (sd.rss > min_rss) {
-                    //Send data to the aggregator if we are not in offline mode
-                    //Otherwise print out the packet
-                    if (not offline) {
-                      agg.send(sd);
-                    }
-                    else {
-
-                      if (0 < pkt->dropped) {
-                        std::cout<<"Dropped: "<<(unsigned int)(pkt->dropped)<<" packets."<<std::endl;
-                      }
-
-                      //TODO Add a flag to pring things out in hex
-                      bool use_hex = false;
-                      if (use_hex) {
-                        std::cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<world_model::getGRAILTime()<<'\t'<<std::hex<<sd.tx_id<<std::dec;
-                        //cout<<std::hex<<sd.rx_id<<"\t"<<std::dec<<sd.rx_timestamp<<'\t'<<std::hex<<sd.tx_id<<std::dec;
-                      }
-                      else {
-                        std::cout<<std::dec<<sd.rx_id<<"\t"<<sd.rx_timestamp<<'\t'<<sd.tx_id;
-                      }
-                      std::cout<<"\t0\t"<<sd.rss<<"\t0x00\tExtra:"<<sd.sense_data.size();
-                      for (auto I = sd.sense_data.begin(); I != sd.sense_data.end(); ++I) {
-                        std::cout<<'\t'<<(uint32_t)(*I);
-                      }
-                      std::cout<<std::endl;
-                    }
-                  }
-//                } // Parity check
               }
             }
           }
@@ -535,22 +680,23 @@ int main(int ac, char** arg_vector) {
       }
     }
     catch (std::runtime_error& re) {
-      std::cerr<<"USB sensor layer error: "<<re.what()<<'\n';
+//      std::cerr<<"USB sensor layer error: "<<re.what()<<'\n';
     }
     catch (std::exception& e) {
-      std::cerr<<"USB sensor layer error: "<<e.what()<<'\n';
+//      std::cerr<<"USB sensor layer error: "<<e.what()<<'\n';
     }
     //Try to reconnect to the server after losing the connection.
     //Sleep a little bit, then try connecting to the server again.
     usleep(1000000);
   }
-  std::cerr<<"Exiting\n";
+//  std::cerr<<"Exiting\n";
   //Clean up the pip connections before exiting.
   for (list<libusb_device_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
     libusb_release_interface(*I, 0);
     libusb_close(*I);
   }
-  libusb_exit(NULL);
+  cleanShutdown();
+  return 0;
 }
 
 
