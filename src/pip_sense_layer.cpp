@@ -50,8 +50,10 @@
 #include <string>
 #include <list>
 #include <map>
+#include <set>
 #include <algorithm>
 #include <stdexcept>
+#include <ctime>
 
 // Ncurses library for fancy printing
 #include <ncurses.h>
@@ -83,15 +85,45 @@ using std::pair;
 #define COLOR_LIGHT_MED 5
 #define COLOR_LIGHT_HIGH 6
 
+#define COLOR_SCROLL_ARROW 7
+
 typedef unsigned int frequency;
 typedef unsigned char bsid;
 typedef unsigned char rating;
+typedef struct {
+  time_t time;
+  int tagID;
+  float rssi;
+  float tempC;
+  float rh;
+  int light;
+  float batteryMv;
+  int batteryJ;
+} pip_sample_t;
+void setStatus(char*);
+
+void printStatusLine(pip_sample_t , bool);
+void updateStatusLine(int);
+void updateStatusList();
+bool updateWindowBounds();
+int getHighlightIndex();
+void initNCurses();
+void drawFraming();
+
+std::set<int> recordedIds;
 
 //Global variable for the signal handler.
 bool killed = false;
 //Signal handler.
 void handler(int signal) {
-  psignal( signal, "Received signal ");
+  if(signal == SIGWINCH){
+    endwin();
+    initNCurses();
+    return;
+  }
+
+//  psignal( signal, "Received signal ");
+  setStatus((char*)"Received signal");
   if (killed) {
 //    std::cerr<<"Aborting.\n";
     // This is the second time we've received the interrupt, so just exit.
@@ -118,6 +150,8 @@ void cleanShutdown(){
 #define LM_RETURNED_PACKET (0x14)
 #define LM_NULL_PACKET (0x15)
 
+#define STATUS_INFO_KEYS "Use arrow keys to scroll. Toggle recording with R."
+
 #define RSSI_OFFSET 78
 #define CRC_OK 0x80
 
@@ -139,16 +173,6 @@ typedef struct {
   float rss;
 } __attribute__((packed)) pip_packet_t;
 
-typedef struct {
-  timeval time;
-  int tagID;
-  float rssi;
-  float tempC;
-  float rh;
-  int light;
-  float batteryMv;
-  int batteryJ;
-} pip_sample_t;
 
 //USB PIPs' vendor ID and strings
 const char *silicon_labs_s = "Silicon Labs\0";
@@ -175,6 +199,17 @@ map<int,pip_sample_t> latestSample;
 
 int highlightId = -1;
 
+
+pair<int,int> displayBounds(0,0);
+
+void setStatus(char* message){
+  int r,c;
+  getmaxyx(stdscr,r,c);
+  move(r-1,2);
+  clrtoeol();
+  printw(message);
+  refresh();
+}
 
 void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
   if(data.size() == 0){
@@ -223,30 +258,68 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
 
 }
 
+void toggleRecording(int tagId){
+  if(tagId < 0){
+    return;
+  }
+  std::set<int>::iterator it = recordedIds.find(tagId);
+  char buffer[80];
+  if(it == recordedIds.end()){
+    recordedIds.insert(tagId);
+    sprintf(buffer,"Started recording %d",tagId);
+  }else {
+    recordedIds.erase(it);
+    sprintf(buffer,"Stopped recording %d",tagId);
+  }
+  updateStatusLine(tagId);
+}
+
 void updateHighlight(int userKey){
   switch(userKey){
     case KEY_UP:
       {
         map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
         if(currIt != latestSample.begin()){
+          int oldId = currIt->first;
           currIt--;
-          if(currIt != latestSample.begin()){
-            highlightId = currIt->first;
+          highlightId = currIt->first;
+          if(updateWindowBounds()){
+            updateStatusList();
+          }else {
+            updateStatusLine(oldId);
+            updateStatusLine(currIt->first);
           }
         }
-        refresh();
       }
       break;
     case KEY_DOWN:
       {
-        map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
-        if(currIt != latestSample.end()){
-          currIt++;
+        if(highlightId == -1 && latestSample.size() > 0){
+          highlightId = latestSample.begin()->first;
+          updateStatusLine(highlightId);
+        }else {
+          map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
           if(currIt != latestSample.end()){
-            highlightId = currIt->first;
+            int oldId = currIt->first;
+            currIt++;
+            if(currIt != latestSample.end()){
+              highlightId = currIt->first;
+              if(updateWindowBounds()){
+                updateStatusList();
+              }else {
+                updateStatusLine(oldId);
+                updateStatusLine(currIt->first);
+              }
+            } 
           } 
-        } 
+        }
         refresh();
+      }
+      break;
+    case 'R':
+    case 'r':
+      {
+        toggleRecording(highlightId);
       }
       break;
     default:
@@ -254,7 +327,142 @@ void updateHighlight(int userKey){
   }
 }
 
+void printStatusLine(pip_sample_t pkt, bool highlight){
+    clrtoeol();
+
+      if(recordedIds.count(pkt.tagID)){
+        printw("R ");
+      }else {
+        printw("  ");
+      }
+      if(highlight){
+        attron(A_REVERSE);
+        attron(A_BOLD);
+      }
+
+
+      printw("%04d  ",pkt.tagID);
+      int color = COLOR_RSSI_MED;
+      if(pkt.rssi < -90.0){
+        color = COLOR_RSSI_LOW;
+      }else if(pkt.rssi > -60.0){
+        color = COLOR_RSSI_HIGH;
+      }
+      attron(COLOR_PAIR(color));
+      printw("%5.2f",pkt.rssi);
+      attroff(COLOR_PAIR(color));
+      if(pkt.tempC > -300){
+        printw("  %7.3f C",pkt.tempC);
+      }else{
+        printw("  -------  ");
+      }
+      if(pkt.rh > -300){
+        printw("  %7.3f %%  ",pkt.rh);
+      }else {
+        printw("  -------    ");
+      }
+      if(pkt.light >= 0){
+        color = COLOR_LIGHT_MED;
+        if(pkt.light < 0x40){
+          color = COLOR_LIGHT_LOW;
+        }else if(pkt.light > 0xB0){
+          color = COLOR_LIGHT_HIGH;
+        }
+        attron(COLOR_PAIR(color));
+        printw("%02x",pkt.light);
+        attroff(COLOR_PAIR(color));
+      }else {
+        printw("--");
+      }
+
+      printw("  %4.3f  %4d",pkt.batteryMv,pkt.batteryJ);
+
+      //2014-12-02 13:34:04
+      char buffer[20];
+      strftime(buffer,20,"%Y-%m-%d %H:%M:%S",std::localtime(&pkt.time));
+      printw("  %s",buffer);
+      attroff(A_BOLD);
+      attroff(A_REVERSE);
+}
+
+int getMaxRow(){
+
+  int maxx, maxy;
+  getmaxyx(stdscr,maxy,maxx);
+  return maxy-2;
+}
+
+int getMinRow(){
+  return 1;
+}
+
+/*
+ * Returns the index (into latestSample) of the highlighted tag, or -1 if none is highlighted.
+ */
+int getHighlightIndex(){
+  if(highlightId < 0){
+    return -1;
+  }
+  return std::distance(latestSample.begin(),latestSample.find(highlightId));
+}
+
+/*
+ * Returns true if window display bounds have changed since last call.
+ */
+bool updateWindowBounds(){
+  pair<int,int> oldBounds = displayBounds;
+
+  int hiIndex = getHighlightIndex();
+
+  int maxRows = getMaxRow() - getMinRow();
+  int currWindowSize = oldBounds.second - oldBounds.first;
+  bool boundsChanged = false;
+  // Need to shrink the window size 
+  if(currWindowSize > maxRows){
+    displayBounds.second = latestSample.size();
+    displayBounds.first = displayBounds.second - maxRows;
+    if(displayBounds.first < 0){
+      displayBounds.first = 0;
+    }
+    boundsChanged = true;
+  }else if(currWindowSize < maxRows){
+    displayBounds.first = 0;
+    displayBounds.second = maxRows;
+    boundsChanged = true;
+  }
+
+  // Check to see if bounds need to "move"
+  if(hiIndex >= 0){
+    // Highlighted row is no longer within bounds, move the bounds
+    if(hiIndex < displayBounds.first){
+      displayBounds.first = hiIndex;
+      displayBounds.second = displayBounds.first + maxRows;
+      boundsChanged = true;
+    }else if(hiIndex > displayBounds.second){
+      displayBounds.second = hiIndex;
+      displayBounds.first = displayBounds.second - maxRows;
+      boundsChanged = true;
+    }
+  }
+
+  return boundsChanged;
+}
+
+void updateStatusLine(int tagId){
+  drawFraming();
+  map<int,pip_sample_t>::iterator it = latestSample.find(tagId);
+  int row = std::distance(latestSample.begin(),it);
+  if(row >= displayBounds.first and row <= displayBounds.second){
+    move(getMinRow()+row-displayBounds.first,0);
+    pip_sample_t pkt = latestSample.find(tagId)->second;
+    printStatusLine(pkt,pkt.tagID == highlightId);
+  }
+
+
+}
+
 void updateState(pip_sample_t& sd){
+  int prevLength = latestSample.size();
   pip_sample_t& storedData = latestSample[sd.tagID];
   storedData.time = sd.time;
   storedData.tagID = sd.tagID;
@@ -263,89 +471,55 @@ void updateState(pip_sample_t& sd){
   storedData.tempC = sd.tempC;
   storedData.rh = sd.rh;
   storedData.light = sd.light;
-//  latestSample[storedData.tagID] = storedData;
-  
-  move(0,0);
-  printw("  Tag   RSSI    Temp (C)   Rel. Hum. Lt  Batt   Joul  Age");
-  int row = 1;
+  if(prevLength != latestSample.size()){
+    updateWindowBounds();
+    updateStatusList();
+  }else {
+    updateStatusLine(sd.tagID);
+  }
 
-  int highlightRow = -1;
+
+}
+
+void drawFraming(){
+  // Draw "scroll" indicator arrows
+  move(0,0);
+  addch(displayBounds.first > 0 ? ('^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
+
   int maxx, maxy;
   getmaxyx(stdscr,maxy,maxx);
+  move(maxy-1,0);
+  int numIds = latestSample.size();
+  addch((numIds > 0) and (displayBounds.second < (numIds-1)) ? ('v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
+  move(0,1);
+  clrtoeol();
+  attron(A_BOLD);
+  printw("  Tag    RSSI   Temp (C)  Rel. Hum.  Lt  Batt   Joul  Date");
+  attroff(A_BOLD);
+}
 
+void updateStatusList(){
+  updateWindowBounds();
+  drawFraming();
 
-  int offsetRow = 0;
-  int listSize = latestSample.size();
-  
-  // If scrolling is needed
-  if(listSize > maxy and highlightRow >= 0){
-
-    map<int,pip_sample_t>::iterator hIter = latestSample.find(highlightId);
-    if(hIter != latestSample.end()){
-      offsetRow = highlightRow = std::distance(hIter,latestSample.end());
-    }
-  }
+  int row = 0;
   map<int,pip_sample_t>::iterator pIter = latestSample.begin();
-
   for(; pIter != latestSample.end(); ++pIter,++row){
-    if(row < offsetRow){
+    if(row < displayBounds.first){
       continue;
-    }else if(row >= maxy){
+    }else if(row > displayBounds.second){
       break;
     }
     
     pip_sample_t pkt = pIter->second;
-    move(row,0);
-    if(pkt.tagID == highlightId){
-      printw("* ");
-    }else {
-      printw("  ");
-    }
-    printw("%04d  ",pkt.tagID);
-    int color = COLOR_RSSI_MED;
-    if(pkt.rssi < -90.0){
-      color = COLOR_RSSI_LOW;
-    }else if(pkt.rssi > -60.0){
-      color = COLOR_RSSI_HIGH;
-    }
-    attron(COLOR_PAIR(color));
-    printw("%5.2f",pkt.rssi);
-    attroff(COLOR_PAIR(color));
-    if(pkt.tempC > -300){
-      printw("  %7.3f C",pkt.tempC);
-    }else{
-      printw("  -------  ");
-    }
-    if(pkt.rh > -300){
-      printw("  %7.3f %% ",pkt.rh);
-    }else {
-      printw("  -------   ");
-    }
-    if(pkt.light >= 0){
-      color = COLOR_LIGHT_MED;
-      if(pkt.light < 0x40){
-        color = COLOR_LIGHT_LOW;
-      }else if(pkt.light > 0xB0){
-        color = COLOR_LIGHT_HIGH;
-      }
-      attron(COLOR_PAIR(color));
-      printw("%02x",pkt.light);
-      attroff(COLOR_PAIR(color));
-    }else {
-      printw("--");
-    }
-
-    printw("  %4.3f  %4d",pkt.batteryMv,pkt.batteryJ);
-    timeval tv;
-    gettimeofday(&tv, NULL);
-    int ageSec = tv.tv_sec - pkt.time.tv_sec;
-    int hr = ageSec / 3600;
-    ageSec %= 3600;
-    int m = ageSec / 60;
-    int s = ageSec % 60;
-
-    printw("  %3dh %2dm %2ds",hr,m,s);
+    move(row-displayBounds.first+getMinRow(),0);
+    printStatusLine(pkt,pkt.tagID == highlightId);
   }
+  for(;row <= displayBounds.second; ++row){
+    move(row-displayBounds.first+getMinRow(),0);
+    clrtoeol();
+  }
+  setStatus((char*)STATUS_INFO_KEYS);
   refresh();
 }
 
@@ -456,26 +630,33 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
 }
 
 
-int main(int ac, char** arg_vector) {
-
-  // Prepare ncurses
+void initNCurses(){
   initscr();  // Start ncurses mode
-  halfdelay(1); // Allow character reads to end after 100ms
-//  raw();      // No line buffering
+  halfdelay(10); // Allow character reads to end after 100ms
   keypad(stdscr,TRUE); // Support F1, F2, arrow keys
   noecho();   // Don't show user input
   start_color();// Use color!
+  curs_set(0);
+  updateStatusList();
+}
+
+int main(int ac, char** arg_vector) {
+
+  // Prepare ncurses
+  initNCurses();
 
   init_pair(COLOR_RSSI_LOW,COLOR_RED, COLOR_BLACK);
   init_pair(COLOR_RSSI_MED, COLOR_YELLOW, COLOR_BLACK);
   init_pair(COLOR_RSSI_HIGH, COLOR_GREEN, COLOR_BLACK);
   init_pair(COLOR_LIGHT_LOW, COLOR_WHITE, COLOR_BLACK);
-  init_pair(COLOR_LIGHT_MED, COLOR_BLACK, COLOR_YELLOW);
-  init_pair(COLOR_LIGHT_HIGH, COLOR_BLACK, COLOR_WHITE);
+  init_pair(COLOR_LIGHT_MED, COLOR_WHITE, COLOR_BLACK);
+  init_pair(COLOR_LIGHT_HIGH, COLOR_YELLOW, COLOR_BLACK);
+  init_pair(COLOR_SCROLL_ARROW, COLOR_WHITE, COLOR_BLUE);
   
   
   //Set up a signal handler to catch interrupt signals so we can close gracefully
   signal(SIGINT, handler);  
+  signal(SIGWINCH, handler);
 
   //Now connect to pip devices and send their packet data to the aggregation server.
   unsigned char msg[128];
@@ -488,11 +669,11 @@ int main(int ac, char** arg_vector) {
   //Attach new pip devices.
   attachPIPs(pip_devs);
   //Remember when the USB tree was last checked and check it occasionally
-  float last_usb_check;
+  double last_usb_check;
   {
     timeval tval;
     gettimeofday(&tval, NULL);
-    last_usb_check = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
+    last_usb_check = tval.tv_sec*1000.0;
   }
 
   while (not killed) {
@@ -501,20 +682,17 @@ int main(int ac, char** arg_vector) {
     try {
       while (not killed) {
         //Check for new USB devices every second
-        float cur_time;
+        double cur_time;
         {
           timeval tval;
           gettimeofday(&tval, NULL);
-          cur_time = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
+          cur_time = tval.tv_sec * 1000.0 + tval.tv_usec/1000.0;
         }
-        if(cur_time - last_usb_check > 0.2){
-          int userKey = getch();
-          std::cout << "Key: " << userKey << std::endl;
-          if(userKey != ERR){
-            updateHighlight(userKey);
-          }
+        int userCh = getch();
+        if(userCh != ERR){
+          updateHighlight(userCh);
         }
-        if (cur_time - last_usb_check > 5.0) {
+        if (cur_time - last_usb_check > 30000) {
           last_usb_check = cur_time;
           attachPIPs(pip_devs);
           //Remove any duplicate devices
@@ -646,13 +824,13 @@ int main(int ac, char** arg_vector) {
                     ((unsigned int)data[11] );
                   //We do not currently use the pip's local timestamp
                   //unsigned long time = ntohl(pkt->time);
-                  unsigned long baseID = ntohl(pkt->boardID << 8);
+//                  unsigned long baseID = ntohl(pkt->boardID << 8);
                   pip_sample_t s;
                   s.tagID = netID;
 
                   //Set this to the real timestamp, milliseconds since 1970
-                  timeval tval;
-                  gettimeofday(&tval, NULL);
+                  time_t tval;
+                  std::time(&tval);
                   s.time = tval;
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
