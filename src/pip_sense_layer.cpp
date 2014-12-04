@@ -47,6 +47,7 @@
 #include <time.h>
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <list>
 #include <map>
@@ -54,6 +55,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <ctime>
+
 
 // Ncurses library for fancy printing
 #include <ncurses.h>
@@ -87,11 +89,13 @@ using std::pair;
 
 #define COLOR_SCROLL_ARROW 7
 
+#define DATE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
+
 typedef unsigned int frequency;
 typedef unsigned char bsid;
 typedef unsigned char rating;
 typedef struct {
-  time_t time;
+  timeval time;
   int tagID;
   float rssi;
   float tempC;
@@ -200,6 +204,10 @@ map<int,pip_sample_t> latestSample;
 int highlightId = -1;
 
 
+#define RECORD_FILE_FORMAT "%Y%m%d_%H%M%S.csv"
+std::ofstream recordFile;
+
+
 pair<int,int> displayBounds(0,0);
 
 void setStatus(char* message){
@@ -221,6 +229,8 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
   s.tempC = -300;
   s.rh = -300;
   s.light = -1;
+  s.batteryMv = -1;
+  s.batteryJ = -1;
   if(hdr & 0x01){
     s.tempC = data[i]>>1;
     ++i;
@@ -262,15 +272,41 @@ void toggleRecording(int tagId){
   if(tagId < 0){
     return;
   }
+  
   std::set<int>::iterator it = recordedIds.find(tagId);
   char buffer[80];
   if(it == recordedIds.end()){
+    if(recordedIds.empty()){
+      if(recordFile){
+        recordFile.close();
+      }
+
+      char filename[22];
+      time_t tval;
+      std::time(&tval);
+      strftime(filename,22,RECORD_FILE_FORMAT,std::localtime(&tval));
+      recordFile.open(filename);
+      if(!recordFile){
+        setStatus((char*)"Unable to open record file!");
+      }else {
+        recordFile << "Timestamp,Date,Tag ID, RSSI, Temp (C), Relative Humidity (%), Light (%), Battery (mV), Battery (J)" << std::endl;
+      }
+
+
+    }
     recordedIds.insert(tagId);
     sprintf(buffer,"Started recording %d",tagId);
   }else {
     recordedIds.erase(it);
     sprintf(buffer,"Stopped recording %d",tagId);
+    if(recordFile and recordedIds.empty()){
+      recordFile.close();
+    }
   }
+
+
+
+
   updateStatusLine(tagId);
 }
 
@@ -349,17 +385,17 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
         color = COLOR_RSSI_HIGH;
       }
       attron(COLOR_PAIR(color));
-      printw("%5.2f",pkt.rssi);
+      printw("%4.1f",pkt.rssi);
       attroff(COLOR_PAIR(color));
       if(pkt.tempC > -300){
-        printw("  %7.3f C",pkt.tempC);
+        printw("  %6.2f C",pkt.tempC);
       }else{
-        printw("  -------  ");
+        printw("  ------  ");
       }
       if(pkt.rh > -300){
-        printw("  %7.3f %%  ",pkt.rh);
+        printw("  %6.2f %%  ",pkt.rh);
       }else {
-        printw("  -------    ");
+        printw("  ------    ");
       }
       if(pkt.light >= 0){
         color = COLOR_LIGHT_MED;
@@ -379,7 +415,7 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
 
       //2014-12-02 13:34:04
       char buffer[20];
-      strftime(buffer,20,"%Y-%m-%d %H:%M:%S",std::localtime(&pkt.time));
+      strftime(buffer,20,DATE_TIME_FORMAT,std::localtime(&pkt.time.tv_sec));
       printw("  %s",buffer);
       attroff(A_BOLD);
       attroff(A_REVERSE);
@@ -461,6 +497,57 @@ void updateStatusLine(int tagId){
 
 }
 
+
+/*
+ * timestamp, date/time, tagId, rssi
+ */
+#define RECORD_FILE_LINE_FORMAT "%ld%3ld,%s,%d,%.1f,"
+#define RECORD_FILE_LINE_FORMAT_F4 "%.4f"
+#define RECORD_FILE_LINE_FORMAT_F3 "%.3f"
+/*
+ * (timestamp,date/time/tagId,rssi), temp, rh, light, battery, joules
+ */ 
+#define RECORD_FILE_LINE_FORMAT_ALL "%s,%s,%s,%s,%s"
+#define RECORD_FILE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
+
+void recordSample(pip_sample_t& sd){
+  if(recordFile){
+    char buff[255];
+    char tbuff[24]; // Date + time
+    strftime(tbuff,23,RECORD_FILE_TIME_FORMAT,std::localtime(&sd.time.tv_sec));
+    
+    int length = snprintf(buff,254,RECORD_FILE_LINE_FORMAT,sd.time.tv_sec,sd.time.tv_usec/1000,tbuff,sd.tagID,sd.rssi);
+    if(sd.tempC > -299){
+      length += snprintf(buff+length,254-length,RECORD_FILE_LINE_FORMAT_F4,sd.tempC);
+    }
+    length += snprintf(buff+length,254-length,",");
+
+    if(sd.rh > -299){
+      length += snprintf(buff+length,254-length,RECORD_FILE_LINE_FORMAT_F4,sd.rh);
+    }
+    length += snprintf(buff+length,254-length,",");
+
+    if(sd.light >= 0){
+      length += snprintf(buff+length,254-length,RECORD_FILE_LINE_FORMAT_F3,sd.light/255.0);
+    }
+    length += snprintf(buff+length,254-length,",");
+
+    if(sd.batteryMv >=0){
+      length += snprintf(buff+length,254-length,RECORD_FILE_LINE_FORMAT_F3,sd.batteryMv);
+    }
+    length += snprintf(buff+length,254-length,",");
+
+    if(sd.batteryJ >= 0){
+      length += snprintf(buff+length,254-length,"%d",sd.batteryJ);
+    }
+  
+    if(!(recordFile << std::string(buff,length) << std::endl)){
+      setStatus((char*)"Error writing to record file!");
+    }
+  }
+
+}
+
 void updateState(pip_sample_t& sd){
   int prevLength = latestSample.size();
   pip_sample_t& storedData = latestSample[sd.tagID];
@@ -478,7 +565,10 @@ void updateState(pip_sample_t& sd){
     updateStatusLine(sd.tagID);
   }
 
-
+  std::set<int>::iterator it = recordedIds.find(sd.tagID);
+  if(it != recordedIds.end()){
+    recordSample(sd);
+  }
 }
 
 void drawFraming(){
@@ -494,7 +584,7 @@ void drawFraming(){
   move(0,1);
   clrtoeol();
   attron(A_BOLD);
-  printw("  Tag    RSSI   Temp (C)  Rel. Hum.  Lt  Batt   Joul  Date");
+  printw("  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date");
   attroff(A_BOLD);
 }
 
@@ -829,8 +919,10 @@ int main(int ac, char** arg_vector) {
                   s.tagID = netID;
 
                   //Set this to the real timestamp, milliseconds since 1970
-                  time_t tval;
-                  std::time(&tval);
+                  timeval tval;
+                  //time_t tval;
+                  //std::time(&tval);
+                  gettimeofday(&tval,NULL);
                   s.time = tval;
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
@@ -872,6 +964,9 @@ int main(int ac, char** arg_vector) {
   for (list<libusb_device_handle*>::iterator I = pip_devs.begin(); I != pip_devs.end(); ++I) {
     libusb_release_interface(*I, 0);
     libusb_close(*I);
+  }
+  if(recordFile){
+    recordFile.close();
   }
   cleanShutdown();
   return 0;
