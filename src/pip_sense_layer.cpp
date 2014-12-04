@@ -126,15 +126,13 @@ void handler(int signal) {
     return;
   }
 
-//  psignal( signal, "Received signal ");
-  setStatus((char*)"Received signal");
-  if (killed) {
-//    std::cerr<<"Aborting.\n";
-    // This is the second time we've received the interrupt, so just exit.
-    exit(-1);
+  if(signal == SIGINT){
+    setStatus((char*)"Shutting down. Use CTRL+C to force exit.");
+    if (killed) {
+      exit(-1);
+    }
+    killed = true;
   }
-//  std::cerr<<"Shutting down...\n";
-  killed = true;
 }
 
 
@@ -290,6 +288,9 @@ void toggleRecording(int tagId){
         setStatus((char*)"Unable to open record file!");
       }else {
         recordFile << "Timestamp,Date,Tag ID, RSSI, Temp (C), Relative Humidity (%), Light (%), Battery (mV), Battery (J)" << std::endl;
+        char msg[40];
+        snprintf(msg,39,"Recording to \"%s\".",filename);
+        setStatus(msg);
       }
 
 
@@ -301,6 +302,7 @@ void toggleRecording(int tagId){
     sprintf(buffer,"Stopped recording %d",tagId);
     if(recordFile and recordedIds.empty()){
       recordFile.close();
+      setStatus((char*)"Stopped recording.");
     }
   }
 
@@ -609,7 +611,6 @@ void updateStatusList(){
     move(row-displayBounds.first+getMinRow(),0);
     clrtoeol();
   }
-  setStatus((char*)STATUS_INFO_KEYS);
   refresh();
 }
 
@@ -728,6 +729,7 @@ void initNCurses(){
   start_color();// Use color!
   curs_set(0);
   updateStatusList();
+  setStatus((char*)STATUS_INFO_KEYS);
 }
 
 int main(int ac, char** arg_vector) {
