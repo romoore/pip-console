@@ -103,6 +103,7 @@ typedef struct {
   int light;
   float batteryMv;
   int batteryJ;
+  int dropped;
 } pip_sample_t;
 void setStatus(char*);
 
@@ -571,6 +572,11 @@ void updateState(pip_sample_t& sd){
   if(it != recordedIds.end()){
     recordSample(sd);
   }
+  if(sd.dropped > 0){
+    char buff[20];
+    snprintf(buff,19,"Dropped: %3d",sd.dropped);
+    setStatus(buff);
+  }
 }
 
 void drawFraming(){
@@ -723,7 +729,7 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
 
 void initNCurses(){
   initscr();  // Start ncurses mode
-  halfdelay(10); // Allow character reads to end after 100ms
+  halfdelay(1); // Allow character reads to end after 100ms
   keypad(stdscr,TRUE); // Support F1, F2, arrow keys
   noecho();   // Don't show user input
   start_color();// Use color!
@@ -762,10 +768,12 @@ int main(int ac, char** arg_vector) {
   attachPIPs(pip_devs);
   //Remember when the USB tree was last checked and check it occasionally
   double last_usb_check;
+  double last_ch_check;
   {
     timeval tval;
     gettimeofday(&tval, NULL);
     last_usb_check = tval.tv_sec*1000.0;
+    last_ch_check = tval.tv_sec*1000.0 + tval.tv_usec/1000.0;
   }
 
   while (not killed) {
@@ -780,9 +788,12 @@ int main(int ac, char** arg_vector) {
           gettimeofday(&tval, NULL);
           cur_time = tval.tv_sec * 1000.0 + tval.tv_usec/1000.0;
         }
-        int userCh = getch();
-        if(userCh != ERR){
-          updateHighlight(userCh);
+        if(cur_time - last_ch_check > 50){
+          last_ch_check = cur_time;
+          int userCh = getch();
+          if(userCh != ERR){
+            updateHighlight(userCh);
+          }
         }
         if (cur_time - last_usb_check > 30000) {
           last_usb_check = cur_time;
@@ -926,6 +937,7 @@ int main(int ac, char** arg_vector) {
                   //std::time(&tval);
                   gettimeofday(&tval,NULL);
                   s.time = tval;
+                  s.dropped = pkt->dropped;
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
                   s.rssi = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
