@@ -1,8 +1,8 @@
 SET(SourceFiles
-  pip_sense_layer.cpp
+  pip_console.cpp
 )
 
-add_executable (pip_sense_layer ${SourceFiles})
-target_link_libraries (pip_sense_layer owl-common owl-sensor pthread usb-1.0 ncurses)
+add_executable (pip_console ${SourceFiles})
+target_link_libraries (pip_console owl-common owl-sensor pthread usb-1.0 ncurses)
 
-INSTALL(TARGETS pip_sense_layer RUNTIME DESTINATION bin/owl)
+INSTALL(TARGETS pip_console RUNTIME DESTINATION bin/owl)
