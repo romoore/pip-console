@@ -8,6 +8,7 @@ set (BSS_VERSION_REVISION 0)
 
 # Optimize for speed, just in case that makes this faster
 set(CMAKE_CXX_FLAGS "-O3 -std=c++0x -Wall -Wextra -Wno-sign-compare")
+include_directories ("${OWL_INC_DIR}" inc)
 
 FIND_PATH(OWL_INC_DIR NAMES owl PATHS /usr/include /usr/local/include)
 IF(NOT OWL_INC_DIR)
@@ -17,7 +18,6 @@ ELSE(NOT OWL_INC_DIR)
   STRING(REGEX REPLACE "/owl" "" OWL_INC_DIR ${OWL_INC_DIR})
 ENDIF(NOT OWL_INC_DIR)
 
-include_directories ("${OWL_INC_DIR}" inc)
 
 add_subdirectory (src bin)
 

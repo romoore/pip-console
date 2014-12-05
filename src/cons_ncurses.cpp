@@ -1,5 +1,3 @@
-#ifndef PIP_CONS_NCURSES_H_
-#define PIP_CONS_NCURSES_H_
 /*
  * Copyright (c) 2012 Bernhard Firner and Rutgers University
  * All rights reserved.
@@ -27,11 +25,6 @@
  *
  * @author Bernhard Firner
  ******************************************************************************/
-//TODO Create lib-cppsensor so that sockets don't need to be handled here.
-
-//These includes need to come first because of the macro defining INT64_MAX
-//TODO FIXME Are some of the old C-style includes breaking this macro?
-
 
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +36,9 @@
 #include <sys/signal.h>
 #include <sys/types.h>
 #include <time.h>
+// Ncurses library for fancy printing
+#include <ncurses.h>
+#include <cons_ncurses.hpp>
 
 #include <iostream>
 #include <fstream>
@@ -56,13 +52,10 @@
 #include <cmath>
 
 
-// Ncurses library for fancy printing
-#include <ncurses.h>
 
 //Handle interrupt signals to exit cleanly.
 #include <signal.h>
 
-#include <cons_ncurses.hpp>
 
 using std::string;
 using std::list;
@@ -109,50 +102,6 @@ void initPipData(pip_sample_t& s){
   s.batteryMv = -1;
   s.batteryJ = -1;
   s.interval = 0;
-}
-
-void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
-  if(data.size() == 0){
-    return;
-  }
-  
-  unsigned char hdr = data[0];
-  int i = 1;
-  if(hdr & 0x01){
-    s.tempC = data[i]>>1;
-    ++i;
-  }
-  if(hdr & 0x02){
-    s.tempC = ((data[i]<<4) + (data[i+1]/16.0));
-    i += 2;
-  }
-
-  if(hdr & 0x04){
-    s.light = data[i];
-    ++i;
-  }
-
-  if(hdr & 0x08){
-    s.tempC = ((data[i]<<4) + (data[i+1]/16.0));
-    i += 2;
-    s.rh = ((data[i]<<4) + (data[i+1]/16.0));
-    i += 2;
-  }
-
-  if(hdr & 0x10){
-    i += 2;
-  }
-
-  if(hdr & 0x20){
-    i += 6;
-  }
-  if(hdr & 0x40){
-    s.batteryMv = ((data[i]<<8) + (data[i+1]))/1000.0;
-    i += 2;
-    s.batteryJ = ((data[i]<<8) + (data[i+1]));
-    i += 2;
-  }
-
 }
 
 void toggleRecording(int tagId){
@@ -613,4 +562,3 @@ void ncursesUserInput(){
   }
 }
 
-#endif

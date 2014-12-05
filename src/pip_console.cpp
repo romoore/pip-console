@@ -59,7 +59,7 @@
 
 
 // Ncurses library for fancy printing
-#include "cons_ncurses.hpp"
+#include <cons_ncurses.hpp>
 
 //Handle interrupt signals to exit cleanly.
 #include <signal.h>
