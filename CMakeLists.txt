@@ -17,7 +17,7 @@ ELSE(NOT OWL_INC_DIR)
   STRING(REGEX REPLACE "/owl" "" OWL_INC_DIR ${OWL_INC_DIR})
 ENDIF(NOT OWL_INC_DIR)
 
-include_directories ("${OWL_INC_DIR}")
+include_directories ("${OWL_INC_DIR}" inc)
 
 add_subdirectory (src bin)
 
