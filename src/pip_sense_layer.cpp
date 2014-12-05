@@ -55,6 +55,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <ctime>
+#include <cmath>
 
 
 // Ncurses library for fancy printing
@@ -89,6 +90,10 @@ using std::pair;
 
 #define COLOR_SCROLL_ARROW 7
 
+#define COLOR_CONFIDENCE_LOW 8
+#define COLOR_CONFIDENCE_MED 9
+#define COLOR_CONFIDENCE_HIGH 10
+
 #define DATE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
 
 typedef unsigned int frequency;
@@ -104,6 +109,9 @@ typedef struct {
   float batteryMv;
   int batteryJ;
   int dropped;
+  unsigned long int rcvTime;
+  long int interval;
+  float intervalConfidence;
 } pip_sample_t;
 void setStatus(char*);
 
@@ -420,6 +428,12 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
       char buffer[20];
       strftime(buffer,20,DATE_TIME_FORMAT,std::localtime(&pkt.time.tv_sec));
       printw("  %s",buffer);
+
+      // Interval
+      color = pkt.intervalConfidence > 0.5 ? (pkt.intervalConfidence > 0.9 ? COLOR_CONFIDENCE_HIGH : COLOR_CONFIDENCE_MED) : COLOR_CONFIDENCE_LOW;
+      attron(COLOR_PAIR(color));
+      printw("  %3d (%.2f)",pkt.interval,pkt.intervalConfidence);
+      attroff(COLOR_PAIR(color));
       attroff(A_BOLD);
       attroff(A_REVERSE);
 }
@@ -504,7 +518,7 @@ void updateStatusLine(int tagId){
 /*
  * timestamp, date/time, tagId, rssi
  */
-#define RECORD_FILE_LINE_FORMAT "%ld%3ld,%s,%d,%.1f,"
+#define RECORD_FILE_LINE_FORMAT "%ld%03ld,%s,%d,%.1f,"
 #define RECORD_FILE_LINE_FORMAT_F4 "%.4f"
 #define RECORD_FILE_LINE_FORMAT_F3 "%.3f"
 /*
@@ -554,6 +568,7 @@ void recordSample(pip_sample_t& sd){
 void updateState(pip_sample_t& sd){
   int prevLength = latestSample.size();
   pip_sample_t& storedData = latestSample[sd.tagID];
+  unsigned long int oldTime = (storedData.time.tv_sec*1000 + storedData.time.tv_usec/1000);
   storedData.time = sd.time;
   storedData.tagID = sd.tagID;
   storedData.time = sd.time;
@@ -561,6 +576,36 @@ void updateState(pip_sample_t& sd){
   storedData.tempC = sd.tempC;
   storedData.rh = sd.rh;
   storedData.light = sd.light;
+  storedData.rcvTime = sd.rcvTime;
+  if(sd.batteryMv > 0){
+    storedData.batteryMv = sd.batteryMv;
+    storedData.batteryJ = sd.batteryJ;
+  }
+
+
+  if(storedData.interval == 0){
+    storedData.interval = 15000;
+    storedData.intervalConfidence = 0.0;
+  }else {
+    long int newTime = (storedData.time.tv_sec*1000 + storedData.time.tv_usec/1000);
+    long int diff = newTime - oldTime;
+    float intAdj = (diff - storedData.interval)/1.0;
+    long int compDiff = std::round(diff / 100.0);
+    long int compInterval = std::round(storedData.interval / 100.0);
+    long int decide = compDiff - compInterval;
+
+    if(decide > 5){
+      storedData.intervalConfidence *= 0.95;
+    }else if(decide < -5){
+      storedData.intervalConfidence *= 0.95;
+    }else {
+      storedData.intervalConfidence = storedData.intervalConfidence*0.65 + .35;
+      if(storedData.intervalConfidence > 0.99){
+        storedData.intervalConfidence = 1.0;
+      }
+    }
+    storedData.interval += (intAdj*(1-(storedData.intervalConfidence*.9)));
+  }
   if(prevLength != latestSample.size()){
     updateWindowBounds();
     updateStatusList();
@@ -592,7 +637,7 @@ void drawFraming(){
   move(0,1);
   clrtoeol();
   attron(A_BOLD);
-  printw("  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date");
+  printw("  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Int");
   attroff(A_BOLD);
 }
 
@@ -750,6 +795,9 @@ int main(int ac, char** arg_vector) {
   init_pair(COLOR_LIGHT_MED, COLOR_WHITE, COLOR_BLACK);
   init_pair(COLOR_LIGHT_HIGH, COLOR_YELLOW, COLOR_BLACK);
   init_pair(COLOR_SCROLL_ARROW, COLOR_WHITE, COLOR_BLUE);
+  init_pair(COLOR_CONFIDENCE_LOW, COLOR_RED, COLOR_BLACK);
+  init_pair(COLOR_CONFIDENCE_MED, COLOR_YELLOW, COLOR_BLACK);
+  init_pair(COLOR_CONFIDENCE_HIGH, COLOR_GREEN, COLOR_BLACK);
   
   
   //Set up a signal handler to catch interrupt signals so we can close gracefully
@@ -937,6 +985,7 @@ int main(int ac, char** arg_vector) {
                   //std::time(&tval);
                   gettimeofday(&tval,NULL);
                   s.time = tval;
+                  s.rcvTime = ntohl(pkt->time);
                   s.dropped = pkt->dropped;
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
