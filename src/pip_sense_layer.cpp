@@ -94,6 +94,9 @@ using std::pair;
 #define COLOR_CONFIDENCE_MED 9
 #define COLOR_CONFIDENCE_HIGH 10
 
+#define COLOR_BATTERY_LOW 11
+#define COLOR_BATTERY_NORMAL 12
+
 #define DATE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
 
 typedef unsigned int frequency;
@@ -322,46 +325,35 @@ void toggleRecording(int tagId){
 }
 
 void updateHighlight(int userKey){
+  int step = 0;
   switch(userKey){
-    case KEY_UP:
-      {
-        map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
-        if(currIt != latestSample.begin()){
-          int oldId = currIt->first;
-          currIt--;
-          highlightId = currIt->first;
-          if(updateWindowBounds()){
-            updateStatusList();
-          }else {
-            updateStatusLine(oldId);
-            updateStatusLine(currIt->first);
-          }
-        }
+    case KEY_HOME:
+      if(not latestSample.empty()){
+        highlightId = latestSample.begin()->first;
+        updateWindowBounds();
+        updateStatusList();
       }
       break;
-    case KEY_DOWN:
-      {
-        if(highlightId == -1 && latestSample.size() > 0){
-          highlightId = latestSample.begin()->first;
-          updateStatusLine(highlightId);
-        }else {
-          map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
-          if(currIt != latestSample.end()){
-            int oldId = currIt->first;
-            currIt++;
-            if(currIt != latestSample.end()){
-              highlightId = currIt->first;
-              if(updateWindowBounds()){
-                updateStatusList();
-              }else {
-                updateStatusLine(oldId);
-                updateStatusLine(currIt->first);
-              }
-            } 
-          } 
-        }
-        refresh();
+    case KEY_END:
+      if(not latestSample.empty()){
+        map<int,pip_sample_t>::iterator it = latestSample.end();
+        it--;
+        highlightId = it->first;
+        updateWindowBounds();
+        updateStatusList();
       }
+      break;
+    case KEY_UP:
+      step = -1;
+      break;
+    case KEY_PPAGE:
+      step = (displayBounds.first - displayBounds.second);
+      break;
+    case KEY_DOWN:
+      step = 1;
+      break;
+    case KEY_NPAGE:
+      step = (displayBounds.second - displayBounds.first);
       break;
     case 'R':
     case 'r':
@@ -371,6 +363,40 @@ void updateHighlight(int userKey){
       break;
     default:
       break;
+  }
+  if(step){
+    if(highlightId == -1 && latestSample.size() > 0){
+      highlightId = latestSample.begin()->first;
+      updateStatusLine(highlightId);
+    }else {
+      map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
+      int oldId = currIt->first;
+      // Move up the list
+      if(step < 0 and currIt != latestSample.begin()){
+        while(step < 0 and currIt != latestSample.begin()){
+          currIt--;
+          ++step;
+        }
+        highlightId = currIt->first;
+      }
+      // Move down the list
+      else {
+        map<int,pip_sample_t>::iterator stopIt = latestSample.end();
+        stopIt--;
+        while(step > 0 and currIt != stopIt){
+          currIt++;
+          --step;
+        }
+        highlightId = currIt->first;
+      }
+      // Update display
+      if(updateWindowBounds()){
+        updateStatusList();
+      }else {
+        updateStatusLine(oldId);
+        updateStatusLine(currIt->first);
+      }
+    }
   }
 }
 
@@ -422,17 +448,31 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
         printw("--");
       }
 
-      printw("  %4.3f  %4d",pkt.batteryMv,pkt.batteryJ);
+      // Battery
+      printw("  ");
+      color = 0; // default color
+      if(pkt.batteryMv >2.9){
+        color = COLOR_BATTERY_NORMAL;
+      }else if(pkt.batteryMv > 0){
+        color = COLOR_BATTERY_LOW;
+      }
+      attron(COLOR_PAIR(color));
+      printw("%4.3f",pkt.batteryMv);
+      attroff(COLOR_PAIR(color));
+      printw("  ");
+      attron(COLOR_PAIR(color));
+      printw("%4d",pkt.batteryJ);
+      attroff(COLOR_PAIR(color));
 
       //2014-12-02 13:34:04
       char buffer[20];
       strftime(buffer,20,DATE_TIME_FORMAT,std::localtime(&pkt.time.tv_sec));
-      printw("  %s",buffer);
+      printw("  %s  ",buffer);
 
       // Interval
       color = pkt.intervalConfidence > 0.5 ? (pkt.intervalConfidence > 0.95 ? COLOR_CONFIDENCE_HIGH : COLOR_CONFIDENCE_MED) : COLOR_CONFIDENCE_LOW;
       attron(COLOR_PAIR(color));
-      printw("  %6d",pkt.interval);
+      printw("%6d",pkt.interval);
       attroff(COLOR_PAIR(color));
       attroff(A_BOLD);
       attroff(A_REVERSE);
@@ -803,6 +843,8 @@ int main(int ac, char** arg_vector) {
   init_pair(COLOR_CONFIDENCE_LOW, COLOR_RED, COLOR_BLACK);
   init_pair(COLOR_CONFIDENCE_MED, COLOR_YELLOW, COLOR_BLACK);
   init_pair(COLOR_CONFIDENCE_HIGH, COLOR_GREEN, COLOR_BLACK);
+  init_pair(COLOR_BATTERY_LOW, COLOR_RED, COLOR_BLACK);
+  init_pair(COLOR_BATTERY_NORMAL, COLOR_BLUE, COLOR_BLACK);
   
   
   //Set up a signal handler to catch interrupt signals so we can close gracefully
