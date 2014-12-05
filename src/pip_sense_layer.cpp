@@ -465,7 +465,7 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
         printw("%4d",pkt.batteryJ);
         attroff(COLOR_PAIR(color));
       }else {
-        printw("----  ----");
+        printw("-----  ----");
       }
 
       //2014-12-02 13:34:04
