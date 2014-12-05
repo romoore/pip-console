@@ -430,9 +430,9 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
       printw("  %s",buffer);
 
       // Interval
-      color = pkt.intervalConfidence > 0.5 ? (pkt.intervalConfidence > 0.9 ? COLOR_CONFIDENCE_HIGH : COLOR_CONFIDENCE_MED) : COLOR_CONFIDENCE_LOW;
+      color = pkt.intervalConfidence > 0.5 ? (pkt.intervalConfidence > 0.95 ? COLOR_CONFIDENCE_HIGH : COLOR_CONFIDENCE_MED) : COLOR_CONFIDENCE_LOW;
       attron(COLOR_PAIR(color));
-      printw("  %3d (%.2f)",pkt.interval,pkt.intervalConfidence);
+      printw("  %6d",pkt.interval);
       attroff(COLOR_PAIR(color));
       attroff(A_BOLD);
       attroff(A_REVERSE);
@@ -582,21 +582,24 @@ void updateState(pip_sample_t& sd){
     storedData.batteryJ = sd.batteryJ;
   }
 
-
+  // Update interval and confidence metric
   if(storedData.interval == 0){
     storedData.interval = 15000;
     storedData.intervalConfidence = 0.0;
   }else {
     long int newTime = (storedData.time.tv_sec*1000 + storedData.time.tv_usec/1000);
-    long int diff = newTime - oldTime;
-    float intAdj = (diff - storedData.interval)/1.0;
-    long int compDiff = std::round(diff / 100.0);
-    long int compInterval = std::round(storedData.interval / 100.0);
-    long int decide = compDiff - compInterval;
+    long int newInterval = newTime - oldTime;
+    float ratio = ((storedData.interval-newInterval)/(float)storedData.interval);
 
-    if(decide > 5){
+    float intAdj = (newInterval-storedData.interval);
+//    float intAdj = (diff - storedData.interval)/1.0;
+//    long int compDiff = std::round(diff / 100.0);
+//    long int compInterval = std::round(storedData.interval / 100.0);
+//    long int decide = compDiff - compInterval;
+
+    if(ratio > .05){
       storedData.intervalConfidence *= 0.95;
-    }else if(decide < -5){
+    }else if(ratio < -.05){
       storedData.intervalConfidence *= 0.95;
     }else {
       storedData.intervalConfidence = storedData.intervalConfidence*0.65 + .35;
@@ -637,7 +640,7 @@ void drawFraming(){
   move(0,1);
   clrtoeol();
   attron(A_BOLD);
-  printw("  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Int");
+  printw("  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Period");
   attroff(A_BOLD);
 }
 
@@ -774,7 +777,9 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
 
 void initNCurses(){
   initscr();  // Start ncurses mode
-  halfdelay(1); // Allow character reads to end after 100ms
+  //halfdelay(1); // Allow character reads to end after 100ms
+  cbreak();
+  timeout(0);
   keypad(stdscr,TRUE); // Support F1, F2, arrow keys
   noecho();   // Don't show user input
   start_color();// Use color!
@@ -1020,7 +1025,6 @@ int main(int ac, char** arg_vector) {
     }
     //Try to reconnect to the server after losing the connection.
     //Sleep a little bit, then try connecting to the server again.
-    usleep(1000000);
   }
 //  std::cerr<<"Exiting\n";
   //Clean up the pip connections before exiting.
