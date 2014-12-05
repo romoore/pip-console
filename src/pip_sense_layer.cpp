@@ -229,6 +229,15 @@ void setStatus(char* message){
   refresh();
 }
 
+void initPipData(pip_sample_t& s){
+  s.tempC = -300;
+  s.rh = -300;
+  s.light = -1;
+  s.batteryMv = -1;
+  s.batteryJ = -1;
+  s.interval = 0;
+}
+
 void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
   if(data.size() == 0){
     return;
@@ -236,11 +245,6 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
   
   unsigned char hdr = data[0];
   int i = 1;
-  s.tempC = -300;
-  s.rh = -300;
-  s.light = -1;
-  s.batteryMv = -1;
-  s.batteryJ = -1;
   if(hdr & 0x01){
     s.tempC = data[i]>>1;
     ++i;
@@ -1046,8 +1050,11 @@ int main(int ac, char** arg_vector) {
                   //Convert from one byte value to a float for receive signal
                   //strength as described in the TI/chipcon Design Note DN505 on cc1100
                   s.rssi = ( (pkt->rssi) >= 128 ? (signed int)(pkt->rssi-256)/2.0 : (pkt->rssi)/2.0) - RSSI_OFFSET;
-                  std::vector<unsigned char> dat(pkt->data, pkt->data+buf[0]);
-                  parseData(dat,s);
+                  initPipData(s);
+                  if(pkt->ex_length){
+                    std::vector<unsigned char> dat(pkt->data, pkt->data+buf[0]);
+                    parseData(dat,s);
+                  }
                   
                   updateState(s);
 
