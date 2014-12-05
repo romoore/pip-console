@@ -450,19 +450,23 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
 
       // Battery
       printw("  ");
-      color = 0; // default color
-      if(pkt.batteryMv >2.9){
-        color = COLOR_BATTERY_NORMAL;
-      }else if(pkt.batteryMv > 0){
-        color = COLOR_BATTERY_LOW;
+      if(pkt.batteryMv > 0){
+        color = 0; // default color
+        if(pkt.batteryMv >2.9){
+          color = COLOR_BATTERY_NORMAL;
+        }else if(pkt.batteryMv > 0){
+          color = COLOR_BATTERY_LOW;
+        }
+        attron(COLOR_PAIR(color));
+        printw("%4.3f",pkt.batteryMv);
+        attroff(COLOR_PAIR(color));
+        printw("  ");
+        attron(COLOR_PAIR(color));
+        printw("%4d",pkt.batteryJ);
+        attroff(COLOR_PAIR(color));
+      }else {
+        printw("----  ----");
       }
-      attron(COLOR_PAIR(color));
-      printw("%4.3f",pkt.batteryMv);
-      attroff(COLOR_PAIR(color));
-      printw("  ");
-      attron(COLOR_PAIR(color));
-      printw("%4d",pkt.batteryJ);
-      attroff(COLOR_PAIR(color));
 
       //2014-12-02 13:34:04
       char buffer[20];
@@ -620,6 +624,11 @@ void updateState(pip_sample_t& sd){
   if(sd.batteryMv > 0){
     storedData.batteryMv = sd.batteryMv;
     storedData.batteryJ = sd.batteryJ;
+  }
+  // If initialized to 0, then make invalid
+  else if(storedData.batteryMv < 0.0001){
+    storedData.batteryMv = -1;
+    storedData.batteryJ = -1;
   }
 
   // Update interval and confidence metric
@@ -844,7 +853,7 @@ int main(int ac, char** arg_vector) {
   init_pair(COLOR_CONFIDENCE_MED, COLOR_YELLOW, COLOR_BLACK);
   init_pair(COLOR_CONFIDENCE_HIGH, COLOR_GREEN, COLOR_BLACK);
   init_pair(COLOR_BATTERY_LOW, COLOR_RED, COLOR_BLACK);
-  init_pair(COLOR_BATTERY_NORMAL, COLOR_BLUE, COLOR_BLACK);
+  init_pair(COLOR_BATTERY_NORMAL, COLOR_GREEN, COLOR_BLACK);
   
   
   //Set up a signal handler to catch interrupt signals so we can close gracefully
