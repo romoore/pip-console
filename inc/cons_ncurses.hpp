@@ -32,6 +32,8 @@
 //These includes need to come first because of the macro defining INT64_MAX
 //TODO FIXME Are some of the old C-style includes breaking this macro?
 
+#include <ncurses.h>
+#include <string>
 
 #define MAX_WRITE_PKTS		0x01
 
@@ -95,18 +97,21 @@ typedef struct {
   float intervalConfidence;
 } pip_sample_t;
 
-void setStatus(char*);
-void printStatusLine(pip_sample_t , bool);
+void repaint();
+void resizePanels();
+void setStatus(std::string);
+void printStatusLine(WINDOW*,pip_sample_t , bool);
 void updateState(pip_sample_t&);
-void updateStatusLine(int);
-void updateStatusList();
+void updateStatusLine(WINDOW*, int);
+void updateStatusList(WINDOW*);
 bool updateWindowBounds();
 int getHighlightIndex();
 void initNCurses();
-void drawFraming();
+void drawFraming(WINDOW*);
 void initNCurses();
 void stopNCurses();
 void ncursesUserInput();
 void initPipData(pip_sample_t&);
+void toggleRecording(int);
 
 #endif

@@ -38,6 +38,7 @@
 #include <time.h>
 // Ncurses library for fancy printing
 #include <ncurses.h>
+#include <panel.h>
 #include <cons_ncurses.hpp>
 
 #include <iostream>
@@ -68,11 +69,18 @@ int highlightId = -1;
 std::ofstream recordFile;
 pair<int,int> displayBounds(0,0);
 
+WINDOW* mainWindow;
+PANEL* mainPanel;
+
+WINDOW* historyWindow;
+PANEL* historyPanel;
+
 //Signal handler.
 void whandler(int signal) {
   if(signal == SIGWINCH){
-    endwin();
-    initNCurses();
+//    endwin();
+  //  initNCurses();
+    setStatus("Console resized. Need to handle this condition since it is not handled yet, and this message is long.");
     return;
   }
 
@@ -86,13 +94,22 @@ void stopNCurses(){
 }
 
 
-void setStatus(char* message){
-  int r,c;
-  getmaxyx(stdscr,r,c);
-  move(r-1,2);
-  clrtoeol();
-  printw(message);
-  refresh();
+void setStatus(std::string message){
+  int lines,cols;
+  getmaxyx(mainWindow,lines,cols);
+  wmove(mainWindow,lines-1,2);
+  wclrtoeol(mainWindow);
+  int trim = message.length() - cols-2;
+  if(trim > 0){
+    std::string::iterator it = message.end();
+    for(; trim > 0 && it != message.begin(); --trim, it--){
+    }
+    message = std::string(it,message.end());
+  }
+  wprintw(mainWindow,message.c_str());
+
+  wnoutrefresh(mainWindow);
+  doupdate();
 }
 
 void initPipData(pip_sample_t& s){
@@ -111,6 +128,7 @@ void toggleRecording(int tagId){
   
   std::set<int>::iterator it = recordedIds.find(tagId);
   char buffer[80];
+  int bufferOffset = 0;
   if(it == recordedIds.end()){
     if(recordedIds.empty()){
       if(recordFile){
@@ -123,31 +141,27 @@ void toggleRecording(int tagId){
       strftime(filename,22,RECORD_FILE_FORMAT,std::localtime(&tval));
       recordFile.open(filename);
       if(!recordFile){
-        setStatus((char*)"Unable to open record file!");
+        bufferOffset += snprintf(&buffer[bufferOffset],79,"Unable to open record file!");
       }else {
         recordFile << "Timestamp,Date,Tag ID, RSSI, Temp (C), Relative Humidity (%), Light (%), Battery (mV), Battery (J)" << std::endl;
-        char msg[40];
-        snprintf(msg,39,"Recording to \"%s\".",filename);
-        setStatus(msg);
+        bufferOffset += snprintf(&buffer[bufferOffset],79,"Recording to \"%s\". ",filename);
       }
 
 
     }
     recordedIds.insert(tagId);
-    sprintf(buffer,"Started recording %d",tagId);
+    bufferOffset += snprintf(&buffer[bufferOffset],79,"Started recording %d.",tagId);
   }else {
     recordedIds.erase(it);
-    sprintf(buffer,"Stopped recording %d",tagId);
+    bufferOffset += snprintf(&buffer[bufferOffset],79,"Stopped recording %d. ",tagId);
     if(recordFile and recordedIds.empty()){
       recordFile.close();
-      setStatus((char*)"Stopped recording.");
+      bufferOffset += snprintf(&buffer[bufferOffset],79,"Stopped recording.");
     }
   }
+  setStatus(std::string(buffer));
 
-
-
-
-  updateStatusLine(tagId);
+  updateStatusLine(mainWindow,tagId);
 }
 
 void updateHighlight(int userKey){
@@ -157,7 +171,7 @@ void updateHighlight(int userKey){
       if(not latestSample.empty()){
         highlightId = latestSample.begin()->first;
         updateWindowBounds();
-        updateStatusList();
+        updateStatusList(mainWindow);
       }
       break;
     case KEY_END:
@@ -166,7 +180,7 @@ void updateHighlight(int userKey){
         it--;
         highlightId = it->first;
         updateWindowBounds();
-        updateStatusList();
+        updateStatusList(mainWindow);
       }
       break;
     case KEY_UP:
@@ -193,7 +207,7 @@ void updateHighlight(int userKey){
   if(step){
     if(highlightId == -1 && latestSample.size() > 0){
       highlightId = latestSample.begin()->first;
-      updateStatusLine(highlightId);
+      updateStatusLine(mainWindow,highlightId);
     }else {
       map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
       int oldId = currIt->first;
@@ -217,48 +231,48 @@ void updateHighlight(int userKey){
       }
       // Update display
       if(updateWindowBounds()){
-        updateStatusList();
+        updateStatusList(mainWindow);
       }else {
-        updateStatusLine(oldId);
-        updateStatusLine(currIt->first);
+        updateStatusLine(mainWindow,oldId);
+        updateStatusLine(mainWindow,currIt->first);
       }
     }
   }
 }
 
-void printStatusLine(pip_sample_t pkt, bool highlight){
-    clrtoeol();
+void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
+    wclrtoeol(win);
 
       if(recordedIds.count(pkt.tagID)){
-        printw("R ");
+        wprintw(win,"R ");
       }else {
-        printw("  ");
+        wprintw(win,"  ");
       }
       if(highlight){
-        attron(A_REVERSE);
-        attron(A_BOLD);
+        wattron(win,A_REVERSE);
+        wattron(win,A_BOLD);
       }
 
 
-      printw("%04d  ",pkt.tagID);
+      wprintw(win,"%04d  ",pkt.tagID);
       int color = COLOR_RSSI_MED;
       if(pkt.rssi < -90.0){
         color = COLOR_RSSI_LOW;
       }else if(pkt.rssi > -60.0){
         color = COLOR_RSSI_HIGH;
       }
-      attron(COLOR_PAIR(color));
-      printw("%4.1f",pkt.rssi);
-      attroff(COLOR_PAIR(color));
+      wattron(win,COLOR_PAIR(color));
+      wprintw(win,"%4.1f",pkt.rssi);
+      wattroff(win,COLOR_PAIR(color));
       if(pkt.tempC > -300){
-        printw("  %6.2f C",pkt.tempC);
+        wprintw(win,"  %6.2f C",pkt.tempC);
       }else{
-        printw("  ------  ");
+        wprintw(win,"  ------  ");
       }
       if(pkt.rh > -300){
-        printw("  %6.2f %%  ",pkt.rh);
+        wprintw(win,"  %6.2f %%  ",pkt.rh);
       }else {
-        printw("  ------    ");
+        wprintw(win,"  ------    ");
       }
       if(pkt.light >= 0){
         color = COLOR_LIGHT_MED;
@@ -267,15 +281,15 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
         }else if(pkt.light > 0xB0){
           color = COLOR_LIGHT_HIGH;
         }
-        attron(COLOR_PAIR(color));
-        printw("%02x",pkt.light);
-        attroff(COLOR_PAIR(color));
+        wattron(win,COLOR_PAIR(color));
+        wprintw(win,"%02x",pkt.light);
+        wattroff(win,COLOR_PAIR(color));
       }else {
-        printw("--");
+        wprintw(win,"--");
       }
 
       // Battery
-      printw("  ");
+      wprintw(win,"  ");
       if(pkt.batteryMv > 0){
         color = 0; // default color
         if(pkt.batteryMv >2.9){
@@ -283,29 +297,31 @@ void printStatusLine(pip_sample_t pkt, bool highlight){
         }else if(pkt.batteryMv > 0){
           color = COLOR_BATTERY_LOW;
         }
-        attron(COLOR_PAIR(color));
-        printw("%4.3f",pkt.batteryMv);
-        attroff(COLOR_PAIR(color));
-        printw("  ");
-        attron(COLOR_PAIR(color));
-        printw("%4d",pkt.batteryJ);
-        attroff(COLOR_PAIR(color));
+        wattron(win,COLOR_PAIR(color));
+        wprintw(win,"%4.3f",pkt.batteryMv);
+        wattroff(win,COLOR_PAIR(color));
+        wprintw(win,"  ");
+        wattron(win,COLOR_PAIR(color));
+        wprintw(win,"%4d",pkt.batteryJ);
+        wattroff(win,COLOR_PAIR(color));
       }else {
-        printw("-----  ----");
+        wprintw(win,"-----  ----");
       }
 
       //2014-12-02 13:34:04
       char buffer[20];
       strftime(buffer,20,DATE_TIME_FORMAT,std::localtime(&pkt.time.tv_sec));
-      printw("  %s  ",buffer);
+      wprintw(win,"  %s  ",buffer);
 
       // Interval
       color = pkt.intervalConfidence > 0.5 ? (pkt.intervalConfidence > 0.95 ? COLOR_CONFIDENCE_HIGH : COLOR_CONFIDENCE_MED) : COLOR_CONFIDENCE_LOW;
-      attron(COLOR_PAIR(color));
-      printw("%6d",pkt.interval);
-      attroff(COLOR_PAIR(color));
-      attroff(A_BOLD);
-      attroff(A_REVERSE);
+      wattron(win,COLOR_PAIR(color));
+      wprintw(win,"%6d",pkt.interval);
+      wattroff(win,COLOR_PAIR(color));
+      wattroff(win,A_BOLD);
+      wattroff(win,A_REVERSE);
+
+      wnoutrefresh(win);
 }
 
 int getMaxRow(){
@@ -371,14 +387,15 @@ bool updateWindowBounds(){
   return boundsChanged;
 }
 
-void updateStatusLine(int tagId){
-  drawFraming();
+void updateStatusLine(WINDOW* win,int tagId){
+  drawFraming(win);
   map<int,pip_sample_t>::iterator it = latestSample.find(tagId);
   int row = std::distance(latestSample.begin(),it);
   if(row >= displayBounds.first and row <= displayBounds.second){
-    move(getMinRow()+row-displayBounds.first,0);
+    wmove(win,getMinRow()+row-displayBounds.first,0);
     pip_sample_t pkt = latestSample.find(tagId)->second;
-    printStatusLine(pkt,pkt.tagID == highlightId);
+    printStatusLine(win,pkt,pkt.tagID == highlightId);
+    repaint();
   }
 
 
@@ -470,9 +487,9 @@ void updateState(pip_sample_t& sd){
   }
   if(prevLength != latestSample.size()){
     updateWindowBounds();
-    updateStatusList();
+    updateStatusList(mainWindow);
   }else {
-    updateStatusLine(sd.tagID);
+    updateStatusLine(mainWindow,sd.tagID);
   }
 
   std::set<int>::iterator it = recordedIds.find(sd.tagID);
@@ -486,26 +503,26 @@ void updateState(pip_sample_t& sd){
   }
 }
 
-void drawFraming(){
+void drawFraming(WINDOW* win){
   // Draw "scroll" indicator arrows
-  move(0,0);
-  addch(displayBounds.first > 0 ? ('^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
+  wmove(win,0,0);
+  waddch(win,displayBounds.first > 0 ? ('^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
 
   int maxx, maxy;
-  getmaxyx(stdscr,maxy,maxx);
-  move(maxy-1,0);
+  getmaxyx(win,maxy,maxx);
+  wmove(win,maxy-1,0);
   int numIds = latestSample.size();
-  addch((numIds > 0) and (displayBounds.second < (numIds-1)) ? ('v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
-  move(0,1);
-  clrtoeol();
-  attron(A_BOLD);
-  printw("  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Period");
-  attroff(A_BOLD);
+  waddch(win,(numIds > 0) and (displayBounds.second < (numIds-1)) ? ('v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
+  wmove(win,0,1);
+  wclrtoeol(win);
+  wattron(win,A_BOLD);
+  wprintw(win,"  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Period");
+  wattroff(win,A_BOLD);
 }
 
-void updateStatusList(){
+void updateStatusList(WINDOW* win){
   updateWindowBounds();
-  drawFraming();
+  drawFraming(win);
 
   int row = 0;
   map<int,pip_sample_t>::iterator pIter = latestSample.begin();
@@ -517,25 +534,30 @@ void updateStatusList(){
     }
     
     pip_sample_t pkt = pIter->second;
-    move(row-displayBounds.first+getMinRow(),0);
-    printStatusLine(pkt,pkt.tagID == highlightId);
+    wmove(win,row-displayBounds.first+getMinRow(),0);
+    printStatusLine(win,pkt,pkt.tagID == highlightId);
   }
   for(;row <= displayBounds.second; ++row){
-    move(row-displayBounds.first+getMinRow(),0);
-    clrtoeol();
+    wmove(win,row-displayBounds.first+getMinRow(),0);
+    wclrtoeol(win);
   }
-  refresh();
+
+  repaint();
+}
+
+void repaint(){
+  doupdate();
 }
 
 void initNCurses(){
   initscr();  // Start ncurses mode
   //halfdelay(1); // Allow character reads to end after 100ms
-  cbreak();
-  timeout(0);
+  cbreak();   // Don't wait for new lines
+  timeout(0);   // Non-blocking input from getch()
   keypad(stdscr,TRUE); // Support F1, F2, arrow keys
   noecho();   // Don't show user input
   start_color();// Use color!
-  curs_set(0);
+  curs_set(0);  // Disable showing cursor on-screen
   
   init_pair(COLOR_RSSI_LOW,COLOR_RED, COLOR_BLACK);
   init_pair(COLOR_RSSI_MED, COLOR_YELLOW, COLOR_BLACK);
@@ -549,12 +571,36 @@ void initNCurses(){
   init_pair(COLOR_CONFIDENCE_HIGH, COLOR_GREEN, COLOR_BLACK);
   init_pair(COLOR_BATTERY_LOW, COLOR_RED, COLOR_BLACK);
   init_pair(COLOR_BATTERY_NORMAL, COLOR_GREEN, COLOR_BLACK);
+
+  int maxX, maxY;
+  getmaxyx(stdscr,maxY,maxX);
+
+  mainWindow = newwin(maxY,maxX, 0, 0);// main window covers entire screen
+ // historyWindow = newwin(maxY, maxX, 0, 0); // history window covers entire screen
+
+  mainPanel = new_panel(mainWindow);
+  //historyPanel = new_panel(historyWindow);
+  box(historyWindow,0,0);
+  // Update the stacking order of panels, history on top
   
   signal(SIGWINCH, whandler);
-  updateStatusList();
-  setStatus((char*)STATUS_INFO_KEYS);
-  
+  updateStatusList(mainWindow);
+  setStatus(STATUS_INFO_KEYS);
+  resizePanels();
+  repaint();
 }
+
+void resizePanels(){
+  int maxX, maxY;
+  getmaxyx(stdscr,maxY,maxX);
+  WINDOW* oldWin = mainWindow;
+  mainWindow = newwin(maxY,maxX,0,0);
+  replace_panel(mainPanel,mainWindow);
+  delwin(oldWin);
+  update_panels();
+}
+
+
 void ncursesUserInput(){
   int userCh = getch();
   if(userCh != ERR){

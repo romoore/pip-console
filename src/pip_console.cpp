@@ -91,7 +91,7 @@ bool killed = false;
 //Signal handler.
 void handler(int signal) {
   if(signal == SIGINT){
-    setStatus((char*)"Shutting down. Use CTRL+C to force exit.");
+    setStatus("Shutting down. Use CTRL+C to force exit.");
     if (killed) {
       exit(-1);
     }
