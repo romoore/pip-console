@@ -62,9 +62,11 @@ using std::string;
 using std::list;
 using std::map;
 using std::pair;
+using std::vector;
 
 std::set<int> recordedIds;
 map<int,pip_sample_t> latestSample;
+map<int,vector<pip_sample_t>> history;
 int highlightId = -1;
 std::ofstream recordFile;
 pair<int,int> displayBounds(0,0);
@@ -74,6 +76,8 @@ PANEL* mainPanel;
 
 WINDOW* historyWindow;
 PANEL* historyPanel;
+
+bool isShowHistory = false;
 
 //Signal handler.
 void whandler(int signal) {
@@ -125,48 +129,86 @@ void toggleRecording(int tagId){
   if(tagId < 0){
     return;
   }
-  
-  std::set<int>::iterator it = recordedIds.find(tagId);
-  char buffer[80];
-  int bufferOffset = 0;
-  if(it == recordedIds.end()){
-    if(recordedIds.empty()){
-      if(recordFile){
+
+  if(!panel_hidden(mainPanel)){
+    
+    std::set<int>::iterator it = recordedIds.find(tagId);
+    char buffer[80];
+    int bufferOffset = 0;
+    if(it == recordedIds.end()){
+      if(recordedIds.empty()){
+        if(recordFile){
+          recordFile.close();
+        }
+
+        char filename[22];
+        time_t tval;
+        std::time(&tval);
+        strftime(filename,22,RECORD_FILE_FORMAT,std::localtime(&tval));
+        recordFile.open(filename);
+        if(!recordFile){
+          bufferOffset += snprintf(&buffer[bufferOffset],79,"Unable to open record file!");
+        }else {
+          recordFile << "Timestamp,Date,Tag ID, RSSI, Temp (C), Relative Humidity (%), Light (%), Battery (mV), Battery (J)" << std::endl;
+          bufferOffset += snprintf(&buffer[bufferOffset],79,"Recording to \"%s\". ",filename);
+        }
+
+
+      }
+      recordedIds.insert(tagId);
+      bufferOffset += snprintf(&buffer[bufferOffset],79,"Started recording %d.",tagId);
+    }else {
+      recordedIds.erase(it);
+      bufferOffset += snprintf(&buffer[bufferOffset],79,"Stopped recording %d. ",tagId);
+      if(recordFile and recordedIds.empty()){
         recordFile.close();
+        bufferOffset += snprintf(&buffer[bufferOffset],79,"Stopped recording.");
       }
-
-      char filename[22];
-      time_t tval;
-      std::time(&tval);
-      strftime(filename,22,RECORD_FILE_FORMAT,std::localtime(&tval));
-      recordFile.open(filename);
-      if(!recordFile){
-        bufferOffset += snprintf(&buffer[bufferOffset],79,"Unable to open record file!");
-      }else {
-        recordFile << "Timestamp,Date,Tag ID, RSSI, Temp (C), Relative Humidity (%), Light (%), Battery (mV), Battery (J)" << std::endl;
-        bufferOffset += snprintf(&buffer[bufferOffset],79,"Recording to \"%s\". ",filename);
-      }
-
-
     }
-    recordedIds.insert(tagId);
-    bufferOffset += snprintf(&buffer[bufferOffset],79,"Started recording %d.",tagId);
-  }else {
-    recordedIds.erase(it);
-    bufferOffset += snprintf(&buffer[bufferOffset],79,"Stopped recording %d. ",tagId);
-    if(recordFile and recordedIds.empty()){
-      recordFile.close();
-      bufferOffset += snprintf(&buffer[bufferOffset],79,"Stopped recording.");
-    }
+    setStatus(std::string(buffer));
+
+    updateStatusLine(mainWindow,tagId);
   }
-  setStatus(std::string(buffer));
+}
 
-  updateStatusLine(mainWindow,tagId);
+// Hides the history panel
+void hideHistory(){
+  show_panel(mainPanel);
+  hide_panel(historyPanel);
+  isShowHistory = false;
+  update_panels();
+  repaint();
+}
+
+void showHistory(int historyId){
+  if (historyId < 0){
+    return; 
+  }
+  //populate the history panel
+
+
+  setStatus("Showing history");
+  show_panel(historyPanel);
+  hide_panel(mainPanel);
+  update_panels();
+  repaint();
 }
 
 void updateHighlight(int userKey){
   int step = 0;
   switch(userKey){
+    case 27:  // ESC or ALT key
+      timeval start,end;
+      gettimeofday(&start, NULL);
+      userKey = getch();
+      if(userKey == ERR){ // ESC key
+        hideHistory();
+      gettimeofday(&end,NULL);
+      char buff[80];
+      snprintf(buff,79,"Diff: %ld",(end.tv_usec-start.tv_usec));
+      setStatus(std::string(buff));
+      }
+      break;
     case KEY_HOME:
       if(not latestSample.empty()){
         highlightId = latestSample.begin()->first;
@@ -200,6 +242,10 @@ void updateHighlight(int userKey){
       {
         toggleRecording(highlightId);
       }
+      break;
+    case '\n':
+    case '\r':
+      showHistory(highlightId);
       break;
     default:
       break;
@@ -388,16 +434,17 @@ bool updateWindowBounds(){
 }
 
 void updateStatusLine(WINDOW* win,int tagId){
-  drawFraming(win);
-  map<int,pip_sample_t>::iterator it = latestSample.find(tagId);
-  int row = std::distance(latestSample.begin(),it);
-  if(row >= displayBounds.first and row <= displayBounds.second){
-    wmove(win,getMinRow()+row-displayBounds.first,0);
-    pip_sample_t pkt = latestSample.find(tagId)->second;
-    printStatusLine(win,pkt,pkt.tagID == highlightId);
-    repaint();
+  if(!panel_hidden(mainPanel)){
+    drawFraming(win);
+    map<int,pip_sample_t>::iterator it = latestSample.find(tagId);
+    int row = std::distance(latestSample.begin(),it);
+    if(row >= displayBounds.first and row <= displayBounds.second){
+      wmove(win,getMinRow()+row-displayBounds.first,0);
+      pip_sample_t pkt = latestSample.find(tagId)->second;
+      printStatusLine(win,pkt,pkt.tagID == highlightId);
+      repaint();
+    }
   }
-
 
 }
 
@@ -462,6 +509,12 @@ void updateState(pip_sample_t& sd){
     storedData.batteryJ = -1;
   }
 
+  vector<pip_sample_t>& tagHistory = history[sd.tagID];
+  tagHistory.insert(tagHistory.begin(),sd);
+  if(tagHistory.size() > 100){
+    tagHistory.pop_back();
+  }
+
   // Update interval and confidence metric
   if(storedData.interval == 0){
     storedData.interval = 15000;
@@ -485,12 +538,6 @@ void updateState(pip_sample_t& sd){
     }
     storedData.interval += (intAdj*(1-(storedData.intervalConfidence*.9)));
   }
-  if(prevLength != latestSample.size()){
-    updateWindowBounds();
-    updateStatusList(mainWindow);
-  }else {
-    updateStatusLine(mainWindow,sd.tagID);
-  }
 
   std::set<int>::iterator it = recordedIds.find(sd.tagID);
   if(it != recordedIds.end()){
@@ -499,8 +546,34 @@ void updateState(pip_sample_t& sd){
   if(sd.dropped > 0){
     char buff[20];
     snprintf(buff,19,"Dropped: %3d",sd.dropped);
-    setStatus(buff);
+//    setStatus(buff);
   }
+
+  renderUpdate(sd.tagID,prevLength != latestSample.size());
+}
+
+/**
+ * Handles screen updates after a data update
+ */
+void renderUpdate(int updatedId,bool newEntry){
+  updateWindowBounds();
+  if(!panel_hidden(mainPanel)){
+    if(newEntry){
+      updateStatusList(mainWindow);
+    }else {
+      updateStatusLine(mainWindow,updatedId);
+    }
+  }
+
+  if(!panel_hidden(historyPanel) and (updatedId == highlightId)){
+    if(newEntry){
+      updateHistoryList(historyWindow);
+    }
+  }
+}
+
+void updateHistoryList(WINDOW* win){
+  
 }
 
 void drawFraming(WINDOW* win){
@@ -521,28 +594,30 @@ void drawFraming(WINDOW* win){
 }
 
 void updateStatusList(WINDOW* win){
-  updateWindowBounds();
-  drawFraming(win);
+  if(!panel_hidden(mainPanel)){
+    updateWindowBounds();
+    drawFraming(win);
 
-  int row = 0;
-  map<int,pip_sample_t>::iterator pIter = latestSample.begin();
-  for(; pIter != latestSample.end(); ++pIter,++row){
-    if(row < displayBounds.first){
-      continue;
-    }else if(row > displayBounds.second){
-      break;
+    int row = 0;
+    map<int,pip_sample_t>::iterator pIter = latestSample.begin();
+    for(; pIter != latestSample.end(); ++pIter,++row){
+      if(row < displayBounds.first){
+        continue;
+      }else if(row > displayBounds.second){
+        break;
+      }
+      
+      pip_sample_t pkt = pIter->second;
+      wmove(win,row-displayBounds.first+getMinRow(),0);
+      printStatusLine(win,pkt,pkt.tagID == highlightId);
     }
-    
-    pip_sample_t pkt = pIter->second;
-    wmove(win,row-displayBounds.first+getMinRow(),0);
-    printStatusLine(win,pkt,pkt.tagID == highlightId);
-  }
-  for(;row <= displayBounds.second; ++row){
-    wmove(win,row-displayBounds.first+getMinRow(),0);
-    wclrtoeol(win);
-  }
+    for(;row <= displayBounds.second; ++row){
+      wmove(win,row-displayBounds.first+getMinRow(),0);
+      wclrtoeol(win);
+    }
 
-  repaint();
+    repaint();
+  }
 }
 
 void repaint(){
@@ -550,9 +625,11 @@ void repaint(){
 }
 
 void initNCurses(){
+  set_escdelay(25);
   initscr();  // Start ncurses mode
   //halfdelay(1); // Allow character reads to end after 100ms
   cbreak();   // Don't wait for new lines
+  nonl();
   timeout(0);   // Non-blocking input from getch()
   keypad(stdscr,TRUE); // Support F1, F2, arrow keys
   noecho();   // Don't show user input
@@ -576,11 +653,12 @@ void initNCurses(){
   getmaxyx(stdscr,maxY,maxX);
 
   mainWindow = newwin(maxY,maxX, 0, 0);// main window covers entire screen
- // historyWindow = newwin(maxY, maxX, 0, 0); // history window covers entire screen
+  historyWindow = newwin(maxY, maxX, 0, 0); // history window covers entire screen
 
   mainPanel = new_panel(mainWindow);
-  //historyPanel = new_panel(historyWindow);
+  historyPanel = new_panel(historyWindow);
   box(historyWindow,0,0);
+  hide_panel(historyPanel);
   // Update the stacking order of panels, history on top
   
   signal(SIGWINCH, whandler);

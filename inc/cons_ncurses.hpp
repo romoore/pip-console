@@ -113,5 +113,8 @@ void stopNCurses();
 void ncursesUserInput();
 void initPipData(pip_sample_t&);
 void toggleRecording(int);
+void renderUpdate(int,bool);
+
+void updateHistoryList(WINDOW*);
 
 #endif
