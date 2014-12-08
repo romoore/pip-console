@@ -105,7 +105,7 @@ void updateState(pip_sample_t&);
 void updateStatusLine(WINDOW*, int);
 void updateStatusList(WINDOW*);
 bool updateWindowBounds();
-int getHighlightIndex();
+int getMainHighlightIndex();
 void initNCurses();
 void drawFraming(WINDOW*);
 void initNCurses();
@@ -114,6 +114,8 @@ void ncursesUserInput();
 void initPipData(pip_sample_t&);
 void toggleRecording(int);
 void renderUpdate(int,bool);
+int getMinRow(WINDOW* win);
+int getMaxRow(WINDOW* win);
 
 void updateHistoryList(WINDOW*);
 

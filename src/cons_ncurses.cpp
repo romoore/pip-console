@@ -67,7 +67,7 @@ using std::vector;
 std::set<int> recordedIds;
 map<int,pip_sample_t> latestSample;
 map<int,vector<pip_sample_t>> history;
-int highlightId = -1;
+int mainHighlightId = -1;
 std::ofstream recordFile;
 pair<int,int> displayBounds(0,0);
 
@@ -171,11 +171,109 @@ void toggleRecording(int tagId){
   }
 }
 
+int historyPanelOffset = 0;
+
+void paintHistoryLine(WINDOW* win,pip_sample_t pkt){
+//      wclrtoeol(win);
+    
+
+  char tbuff[30];
+  int off = strftime(tbuff,29,RECORD_FILE_TIME_FORMAT,std::localtime(&pkt.time.tv_sec));
+  snprintf(tbuff+off,29-off,".%03ld  ",pkt.time.tv_usec/1000);
+  wprintw(win,tbuff);
+  int color = COLOR_RSSI_MED;
+  if(pkt.rssi < -90.0){
+    color = COLOR_RSSI_LOW;
+  }else if(pkt.rssi > -60.0){
+    color = COLOR_RSSI_HIGH;
+  }
+  wattron(win,COLOR_PAIR(color));
+  wprintw(win,"%4.1f",pkt.rssi);
+  wattroff(win,COLOR_PAIR(color));
+  if(pkt.tempC > -300){
+    wprintw(win,"  %6.2f C",pkt.tempC);
+  }else{
+    wprintw(win,"  ------  ");
+  }
+  if(pkt.rh > -300){
+    wprintw(win,"  %6.2f %%  ",pkt.rh);
+  }else {
+    wprintw(win,"  ------    ");
+  }
+
+
+
+  if(pkt.light >= 0){
+    color = COLOR_LIGHT_MED;
+    if(pkt.light < 0x40){
+      color = COLOR_LIGHT_LOW;
+    }else if(pkt.light > 0xB0){
+      color = COLOR_LIGHT_HIGH;
+    }
+    wattron(win,COLOR_PAIR(color));
+    wprintw(win,"%02x",pkt.light);
+    wattroff(win,COLOR_PAIR(color));
+  }else {
+    wprintw(win,"--");
+  }
+
+  // Battery
+  wprintw(win,"  ");
+  if(pkt.batteryMv > 0){
+    color = 0; // default color
+    if(pkt.batteryMv >2.9){
+      color = COLOR_BATTERY_NORMAL;
+    }else if(pkt.batteryMv > 0){
+      color = COLOR_BATTERY_LOW;
+    }
+    wattron(win,COLOR_PAIR(color));
+    wprintw(win,"%4.3f",pkt.batteryMv);
+    wattroff(win,COLOR_PAIR(color));
+    wprintw(win,"  ");
+    wattron(win,COLOR_PAIR(color));
+    wprintw(win,"%4d",pkt.batteryJ);
+    wattroff(win,COLOR_PAIR(color));
+  }else {
+    wprintw(win,"-----  ----");
+  }
+
+  wnoutrefresh(win);
+
+}
+
+void renderHistoryPanel(){
+  werase(historyWindow);
+  box(historyWindow,0,0);
+  vector<pip_sample_t>* histCopy = (vector<pip_sample_t>*)panel_userptr(historyPanel);
+  if(!histCopy){
+    return;
+  }
+
+  
+  int drawRow = getMinRow(historyWindow);
+  int lastDrawRow = getMaxRow(historyWindow);
+  int historyIndex = historyPanelOffset;
+
+  // Column headers
+  wmove(historyWindow,drawRow-1,2);
+  wattron(historyWindow,A_BOLD);
+  wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt   Batt   Joul");
+  wattroff(historyWindow,A_BOLD);
+  vector<pip_sample_t>::iterator it = histCopy->begin();
+  for(; drawRow <= lastDrawRow and it != histCopy->end(); it++, ++drawRow){
+    std::cerr << (*it).tagID << std::endl;
+    wmove(historyWindow,drawRow,2);
+    paintHistoryLine(historyWindow,*it);
+  }
+}
+
 // Hides the history panel
 void hideHistory(){
   show_panel(mainPanel);
   hide_panel(historyPanel);
   isShowHistory = false;
+
+  updateStatusList(mainWindow);
   update_panels();
   repaint();
 }
@@ -186,32 +284,68 @@ void showHistory(int historyId){
   }
   //populate the history panel
 
+  vector<pip_sample_t> historyCopy = history[historyId];
+  set_panel_userptr(historyPanel,&historyCopy);
+  isShowHistory = true;
 
-  setStatus("Showing history");
   show_panel(historyPanel);
   hide_panel(mainPanel);
+
+  renderHistoryPanel();
+
   update_panels();
   repaint();
 }
 
-void updateHighlight(int userKey){
+void handleHistoryInput(int userKey){
   int step = 0;
   switch(userKey){
     case 27:  // ESC or ALT key
-      timeval start,end;
-      gettimeofday(&start, NULL);
       userKey = getch();
       if(userKey == ERR){ // ESC key
         hideHistory();
-      gettimeofday(&end,NULL);
-      char buff[80];
-      snprintf(buff,79,"Diff: %ld",(end.tv_usec-start.tv_usec));
-      setStatus(std::string(buff));
       }
       break;
     case KEY_HOME:
+//      historyPanelOffset = 0;
+      //FIXME: Calling this causes a segfault.
+      // Perhaps it's caused by the way the vector is copied?
+//      renderHistoryPanel();
+      break;
+    case KEY_END:
+      {
+      /*
+        vector<pip_sample_t>* histC = (vector<pip_sample_t>*)panel_userptr(historyPanel);
+        if(histC){
+          historyPanelOffset = std::distance(histC->end(),histC->begin()) - getMaxRow(historyWindow) + getMinRow(historyWindow);
+          if(historyPanelOffset < 0){
+            historyPanelOffset = 0;
+          }
+          renderHistoryPanel();
+        }
+        */
+      }
+      break;
+    case KEY_UP:
+      break;
+    case KEY_PPAGE:
+      break;
+    case KEY_DOWN:
+      break;
+    case KEY_NPAGE:
+      break;
+ 
+  }
+
+
+}
+
+void handleMainInput(int userKey){
+  int step = 0;
+  switch(userKey){
+    case KEY_HOME:
       if(not latestSample.empty()){
-        highlightId = latestSample.begin()->first;
+        mainHighlightId = latestSample.begin()->first;
         updateWindowBounds();
         updateStatusList(mainWindow);
       }
@@ -220,7 +354,7 @@ void updateHighlight(int userKey){
       if(not latestSample.empty()){
         map<int,pip_sample_t>::iterator it = latestSample.end();
         it--;
-        highlightId = it->first;
+        mainHighlightId = it->first;
         updateWindowBounds();
         updateStatusList(mainWindow);
       }
@@ -240,22 +374,22 @@ void updateHighlight(int userKey){
     case 'R':
     case 'r':
       {
-        toggleRecording(highlightId);
+        toggleRecording(mainHighlightId);
       }
       break;
     case '\n':
     case '\r':
-      showHistory(highlightId);
+      showHistory(mainHighlightId);
       break;
     default:
       break;
   }
   if(step){
-    if(highlightId == -1 && latestSample.size() > 0){
-      highlightId = latestSample.begin()->first;
-      updateStatusLine(mainWindow,highlightId);
+    if(mainHighlightId == -1 && latestSample.size() > 0){
+      mainHighlightId = latestSample.begin()->first;
+      updateStatusLine(mainWindow,mainHighlightId);
     }else {
-      map<int,pip_sample_t>::iterator currIt = latestSample.find(highlightId);
+      map<int,pip_sample_t>::iterator currIt = latestSample.find(mainHighlightId);
       int oldId = currIt->first;
       // Move up the list
       if(step < 0 and currIt != latestSample.begin()){
@@ -263,7 +397,7 @@ void updateHighlight(int userKey){
           currIt--;
           ++step;
         }
-        highlightId = currIt->first;
+        mainHighlightId = currIt->first;
       }
       // Move down the list
       else {
@@ -273,7 +407,7 @@ void updateHighlight(int userKey){
           currIt++;
           --step;
         }
-        highlightId = currIt->first;
+        mainHighlightId = currIt->first;
       }
       // Update display
       if(updateWindowBounds()){
@@ -283,6 +417,17 @@ void updateHighlight(int userKey){
         updateStatusLine(mainWindow,currIt->first);
       }
     }
+  }
+
+}
+
+
+void updateHighlight(int userKey){
+
+  if(isShowHistory){
+    handleHistoryInput(userKey);
+  }else {
+    handleMainInput(userKey);
   }
 }
 
@@ -370,25 +515,46 @@ void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
       wnoutrefresh(win);
 }
 
-int getMaxRow(){
+/*
+ * The last row/line on which "content" should be rendered to a window.
+ * Accounts for footers, status bars, etc.
+ */ 
+int getMaxRow(WINDOW* win){
 
   int maxx, maxy;
-  getmaxyx(stdscr,maxy,maxx);
-  return maxy-2;
+  getmaxyx(win,maxy,maxx);
+  if(win == mainWindow){
+    return maxy-2; // Status bar at the bottom
+  }
+  else if(win == historyWindow){
+    return maxy - 2; // Box drawn at the bottom
+  }
+  return maxy-1;
 }
 
-int getMinRow(){
-  return 1;
+/*
+ * The first row/line on which "content" should be rendered to a window.
+ * Accounts for headers, titles, etc.
+ */
+int getMinRow(WINDOW* win){
+  if(win == mainWindow){
+    return 1;
+  }
+  else if(win == historyWindow){
+    return 2;
+  }else {
+    return 0;
+  }
 }
 
 /*
  * Returns the index (into latestSample) of the highlighted tag, or -1 if none is highlighted.
  */
-int getHighlightIndex(){
-  if(highlightId < 0){
+int getMainHighlightIndex(){
+  if(mainHighlightId < 0){
     return -1;
   }
-  return std::distance(latestSample.begin(),latestSample.find(highlightId));
+  return std::distance(latestSample.begin(),latestSample.find(mainHighlightId));
 }
 
 /*
@@ -397,9 +563,9 @@ int getHighlightIndex(){
 bool updateWindowBounds(){
   pair<int,int> oldBounds = displayBounds;
 
-  int hiIndex = getHighlightIndex();
+  int hiIndex = getMainHighlightIndex();
 
-  int maxRows = getMaxRow() - getMinRow();
+  int maxRows = getMaxRow(mainWindow) - getMinRow(mainWindow);
   int currWindowSize = oldBounds.second - oldBounds.first;
   bool boundsChanged = false;
   // Need to shrink the window size 
@@ -439,9 +605,9 @@ void updateStatusLine(WINDOW* win,int tagId){
     map<int,pip_sample_t>::iterator it = latestSample.find(tagId);
     int row = std::distance(latestSample.begin(),it);
     if(row >= displayBounds.first and row <= displayBounds.second){
-      wmove(win,getMinRow()+row-displayBounds.first,0);
+      wmove(win,getMinRow(win)+row-displayBounds.first,0);
       pip_sample_t pkt = latestSample.find(tagId)->second;
-      printStatusLine(win,pkt,pkt.tagID == highlightId);
+      printStatusLine(win,pkt,pkt.tagID == mainHighlightId);
       repaint();
     }
   }
@@ -565,7 +731,7 @@ void renderUpdate(int updatedId,bool newEntry){
     }
   }
 
-  if(!panel_hidden(historyPanel) and (updatedId == highlightId)){
+  if(!panel_hidden(historyPanel) and (updatedId == mainHighlightId)){
     if(newEntry){
       updateHistoryList(historyWindow);
     }
@@ -589,7 +755,7 @@ void drawFraming(WINDOW* win){
   wmove(win,0,1);
   wclrtoeol(win);
   wattron(win,A_BOLD);
-  wprintw(win,"  Tag    RSSI  Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Period");
+  wprintw(win,"  Tag   RSSI   Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Period");
   wattroff(win,A_BOLD);
 }
 
@@ -608,11 +774,11 @@ void updateStatusList(WINDOW* win){
       }
       
       pip_sample_t pkt = pIter->second;
-      wmove(win,row-displayBounds.first+getMinRow(),0);
-      printStatusLine(win,pkt,pkt.tagID == highlightId);
+      wmove(win,row-displayBounds.first+getMinRow(win),0);
+      printStatusLine(win,pkt,pkt.tagID == mainHighlightId);
     }
     for(;row <= displayBounds.second; ++row){
-      wmove(win,row-displayBounds.first+getMinRow(),0);
+      wmove(win,row-displayBounds.first+getMinRow(win),0);
       wclrtoeol(win);
     }
 
@@ -653,7 +819,7 @@ void initNCurses(){
   getmaxyx(stdscr,maxY,maxX);
 
   mainWindow = newwin(maxY,maxX, 0, 0);// main window covers entire screen
-  historyWindow = newwin(maxY, maxX, 0, 0); // history window covers entire screen
+  historyWindow = newwin(maxY-1, maxX, 0, 0); // history window covers entire screen
 
   mainPanel = new_panel(mainWindow);
   historyPanel = new_panel(historyWindow);
