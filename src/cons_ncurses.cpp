@@ -37,8 +37,8 @@
 #include <sys/types.h>
 #include <time.h>
 // Ncurses library for fancy printing
-#include <ncurses.h>
 #include <panel.h>
+#include <ncurses.h>
 #include <cons_ncurses.hpp>
 
 #include <iostream>
@@ -67,6 +67,7 @@ using std::vector;
 std::set<int> recordedIds;
 map<int,pip_sample_t> latestSample;
 map<int,vector<pip_sample_t>> history;
+vector<pip_sample_t> histCopy;
 int mainHighlightId = -1;
 std::ofstream recordFile;
 pair<int,int> displayBounds(0,0);
@@ -241,27 +242,27 @@ void paintHistoryLine(WINDOW* win,pip_sample_t pkt){
 
 }
 
+
 void renderHistoryPanel(){
   werase(historyWindow);
   box(historyWindow,0,0);
-  vector<pip_sample_t>* histCopy = (vector<pip_sample_t>*)panel_userptr(historyPanel);
-  if(!histCopy){
+  if(histCopy.empty()){
     return;
   }
 
   
   int drawRow = getMinRow(historyWindow);
   int lastDrawRow = getMaxRow(historyWindow);
-  int historyIndex = historyPanelOffset;
 
   // Column headers
   wmove(historyWindow,drawRow-1,2);
   wattron(historyWindow,A_BOLD);
-  wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt   Batt   Joul");
+  wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt   Batt  Joul");
   wattroff(historyWindow,A_BOLD);
-  vector<pip_sample_t>::iterator it = histCopy->begin();
-  for(; drawRow <= lastDrawRow and it != histCopy->end(); it++, ++drawRow){
-    std::cerr << (*it).tagID << std::endl;
+  vector<pip_sample_t>::iterator it = histCopy.begin();
+  // Step through the data vector
+  for(int i = 0; i < historyPanelOffset and it != histCopy.end(); ++i, it++){}
+  for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
     wmove(historyWindow,drawRow,2);
     paintHistoryLine(historyWindow,*it);
   }
@@ -282,10 +283,10 @@ void showHistory(int historyId){
   if (historyId < 0){
     return; 
   }
+  historyPanelOffset = 0;
   //populate the history panel
 
-  vector<pip_sample_t> historyCopy = history[historyId];
-  set_panel_userptr(historyPanel,&historyCopy);
+  histCopy = history[historyId];
   isShowHistory = true;
 
   show_panel(historyPanel);
@@ -307,32 +308,68 @@ void handleHistoryInput(int userKey){
       }
       break;
     case KEY_HOME:
-//      historyPanelOffset = 0;
+      historyPanelOffset = 0;
       //FIXME: Calling this causes a segfault.
       // Perhaps it's caused by the way the vector is copied?
-//      renderHistoryPanel();
+      renderHistoryPanel();
+      repaint();
       break;
     case KEY_END:
       {
-      /*
-        vector<pip_sample_t>* histC = (vector<pip_sample_t>*)panel_userptr(historyPanel);
-        if(histC){
-          historyPanelOffset = std::distance(histC->end(),histC->begin()) - getMaxRow(historyWindow) + getMinRow(historyWindow);
+        
+        if(!histCopy.empty()){
+          historyPanelOffset = std::distance(histCopy.begin(),histCopy.end()) - getMaxRow(historyWindow) + getMinRow(historyWindow)-1;
           if(historyPanelOffset < 0){
             historyPanelOffset = 0;
           }
+          std::cerr << "History offset: " << historyPanelOffset << std::endl;
           renderHistoryPanel();
+          repaint();
         }
-        */
       }
       break;
     case KEY_UP:
+      {
+        historyPanelOffset--;
+        if(historyPanelOffset < 0){
+          historyPanelOffset = 0;
+        }
+        renderHistoryPanel();
+        repaint();
+      }
       break;
     case KEY_PPAGE:
+      {
+        historyPanelOffset -= std::distance(histCopy.begin(),histCopy.end());
+        if(historyPanelOffset < 0){
+          historyPanelOffset = 0;
+        }
+        renderHistoryPanel();
+        repaint();
+      }
       break;
     case KEY_DOWN:
+      {
+        historyPanelOffset++;
+        int maxOffset = std::distance(histCopy.begin(),histCopy.end()) - getMaxRow(historyWindow) + getMinRow(historyWindow)-1;
+        if(maxOffset > 0 and historyPanelOffset > maxOffset){
+          historyPanelOffset = maxOffset;
+        }
+        renderHistoryPanel();
+        repaint();
+      }
       break;
     case KEY_NPAGE:
+      {
+        historyPanelOffset += std::distance(histCopy.begin(),histCopy.end());
+        int maxOffset = std::distance(histCopy.begin(),histCopy.end()) - getMaxRow(historyWindow) + getMinRow(historyWindow)-1;
+        if(maxOffset > 0 and historyPanelOffset > maxOffset){
+          historyPanelOffset = maxOffset;
+        }
+        renderHistoryPanel();
+        repaint();
+      }
+
       break;
  
   }
