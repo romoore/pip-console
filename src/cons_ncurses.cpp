@@ -327,7 +327,7 @@ void renderHistoryPanel(){
   // Step through the data vector
   for(int i = 0; i < historyPanelOffset and it != histCopy.end(); ++i, it++){}
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
-    if(drawRow >= scrollStart and drawRow <= scrollEnd){
+    if(drawRow >= scrollStart and drawRow < scrollEnd){
       wmove(historyWindow,drawRow,1);
       waddch(historyWindow,'#');
     }
