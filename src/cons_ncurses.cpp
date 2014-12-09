@@ -316,7 +316,7 @@ void renderHistoryPanel(){
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
     if(drawRow >= scrollStart and drawRow <= scrollEnd){
       wmove(historyWindow,drawRow,1);
-      addch('#');
+      waddch(historyWindow,'#');
     }
     wmove(historyWindow,drawRow,3);
     paintHistoryLine(historyWindow,*it);
