@@ -268,15 +268,12 @@ void renderHistoryPanel(){
 
   bool scroll = false;
 
-  // "Up arrow" if offset != 0
-  if(historyPanelOffset > 0){
+  if((historyPanelOffset > 0) or (historyPanelOffset + (lastDrawRow-drawRow) + 1 ) < histCopy.size()){
+    // "Up arrow" if offset != 0
     wmove(historyWindow,drawRow,1);
     waddch(historyWindow,'^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
-    scroll = true;
-  }
 
-  // "Down arrow" if offset + rows < history size
-  if((historyPanelOffset + (lastDrawRow-drawRow) + 1 ) < histCopy.size()){
+    // "Down arrow" if offset + rows < history size
     wmove(historyWindow,lastDrawRow,1);
     waddch(historyWindow,'v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
     scroll = true;
@@ -325,7 +322,7 @@ void renderHistoryPanel(){
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
     if(drawRow >= scrollStart and drawRow < scrollEnd){
       wmove(historyWindow,drawRow,1);
-      waddch(historyWindow,'#');
+      waddch(historyWindow,'#'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
     }
     wmove(historyWindow,drawRow,3);
     paintHistoryLine(historyWindow,*it);
