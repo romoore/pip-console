@@ -287,14 +287,11 @@ void renderHistoryPanel(){
   // Calculate size, offset of scroll bar
   if(scroll){
     int displayedRows = lastDrawRow - drawRow + 1;
-    std::cerr << "Rows available: " << displayedRows << std::endl;
     // "Entire" size is number of data rows - 2
     // If start = 2, end = 29, then 28 out of 30 can be used
     int maxSize = displayedRows - 2;
-    std::cerr << "Maximum size of scroll bar: " << maxSize << std::endl;
     // Fraction of displayed content versus total
     int scrollSize = maxSize * (((float)displayedRows)/histCopy.size());
-    std::cerr << "Actual size of scroll bar: " << scrollSize << std::endl;
     
     // "Maximum" offset of scrolled window, based on history vector
     int maxOffset = histCopy.size() - displayedRows;
@@ -302,8 +299,6 @@ void renderHistoryPanel(){
       maxOffset = 0;
     }
 
-    std::cerr << "Maximum offset of window: " << maxOffset << std::endl;
-    std::cerr << "Actual offset of window: " << historyPanelOffset << std::endl;
 
     // If 90% near the bottom, then 90% of "empty space" should be above 
     float scrollPercent = ((float)historyPanelOffset)/maxOffset;
@@ -311,9 +306,7 @@ void renderHistoryPanel(){
     // If scrollPercent = 0.0, start at row 2
     // If scrollPercent = 1.0, start at row 2 + (maxSize - scrollSize)
     scrollStart = maxOffset == 0 ? drawRow + 1 : drawRow + 1 +scrollPercent*(maxSize-scrollSize);
-    std::cerr << "Actual offset of scroll bar: " << scrollStart << std::endl;
     scrollEnd = scrollStart + scrollSize;
-    std::cerr << "Actual end of scroll bar: " << scrollEnd << std::endl;
 
   }
 
@@ -417,12 +410,12 @@ void handleHistoryInput(int userKey){
       break;
     case KEY_DOWN:
       {
-        int screenRows = getMaxRow(historyWindow) - getMinRow(historyWindow);
+        int screenRows = getMaxRow(historyWindow) - getMinRow(historyWindow)+1;
         int histSize = histCopy.size();
         if(histSize > screenRows){
           historyPanelOffset++;
           
-          int maxOffset = histSize - screenRows -1;
+          int maxOffset = histSize - screenRows;
           if(maxOffset > 0 and historyPanelOffset > maxOffset){
             historyPanelOffset = maxOffset;
           }
