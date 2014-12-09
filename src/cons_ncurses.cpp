@@ -82,6 +82,7 @@ WINDOW* statusWindow;
 PANEL* statusPanel;
 
 bool isShowHistory = false;
+extern bool killed;
 
 //Signal handler.
 void whandler(int signal) {
@@ -454,6 +455,12 @@ void handleHistoryInput(int userKey){
 void handleMainInput(int userKey){
   int step = 0;
   switch(userKey){
+    case 27:  // ESC or ALT key
+      userKey = getch();
+      if(userKey == ERR){ // ESC key
+        killed = true;
+      }
+      break;
     case KEY_HOME:
       if(not latestSample.empty()){
         mainHighlightId = latestSample.begin()->first;
