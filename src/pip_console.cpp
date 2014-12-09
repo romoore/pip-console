@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2012 Bernhard Firner and Rutgers University
+ * Copyright (C) 2014 Robert S. Moore II and Rutgers University
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -24,38 +25,20 @@
  * that data to an aggregator.
  *
  * @author Bernhard Firner
+ * @author Robert S. Moore II
  ******************************************************************************/
-//TODO Create lib-cppsensor so that sockets don't need to be handled here.
-
-//These includes need to come first because of the macro defining INT64_MAX
-//TODO FIXME Are some of the old C-style includes breaking this macro?
-#include <owl/sensor_connection.hpp>
-#include <owl/world_model_protocol.hpp>
 
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <libusb-1.0/libusb.h>
-#include <errno.h>
-#include <sys/time.h>
 
-#include <fcntl.h>
-#include <termios.h>
-#include <sys/signal.h>
-#include <sys/types.h>
 #include <arpa/inet.h>
-#include <time.h>
 
 #include <iostream>
-#include <fstream>
-#include <string>
 #include <list>
 #include <map>
-#include <set>
 #include <algorithm>
-#include <stdexcept>
-#include <ctime>
-#include <cmath>
 
 
 // Ncurses library for fancy printing
@@ -69,20 +52,7 @@ using std::list;
 using std::map;
 using std::pair;
 
-#define MAX_WRITE_PKTS		0x01
-
-#define FT_READ_MSG			0x00
-#define FT_WRITE_MSG		0x01
-#define FT_READ_ACK			0x02
-
-#define FT_MSG_SIZE			0x03
-
 #define MAX_PACKET_SIZE_READ		(64 *1024 )
-#define MAX_PACKET_SIZE_WRITE		512
-
-typedef unsigned int frequency;
-typedef unsigned char bsid;
-typedef unsigned char rating;
 
 //Global variable for the signal handler.
 bool killed = false;
@@ -110,14 +80,10 @@ void cleanShutdown(){
 }
 
 /* #defines of the commands to the pipsqueak tag */
-#define LM_PING (0x11)
-#define LM_PONG (0x12)
 #define LM_GET_NEXT_PACKET (0x13)
-#define LM_RETURNED_PACKET (0x14)
-#define LM_NULL_PACKET (0x15)
 
+/* Defined in CC1100 data sheet/errata. */
 #define RSSI_OFFSET 78
-#define CRC_OK 0x80
 
 
 
@@ -160,6 +126,11 @@ map<struct libusb_device_handle*, int8_t> versions;
 #define TI_LABS_PIPPROD ((unsigned short) (0x0300))
 
 
+/*
+ * Parses the "extra data" portion of the Pip packet into 
+ * the actual recorded data.  Values are written into 
+ * s if present.
+ */
 void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
   if(data.size() == 0){
     return;
@@ -167,20 +138,29 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
   
   unsigned char hdr = data[0];
   int i = 1;
+  // Binary sensing (doors, water, etc.) in bit 0x01
+  // Temperature in bits 0xFE, Celsius, offset 40 degrees
   if(hdr & 0x01){
-    s.tempC = data[i]>>1;
+    s.tempC = (data[i]>>1) - 40;
     ++i;
   }
+  // Temperature in Celsius, not offset, in 16ths of a degree.
   if(hdr & 0x02){
     s.tempC = ((data[i]<<4) + (data[i+1]/16.0));
     i += 2;
   }
 
+  // Ambient light based on "dark" (0x00) to bright office (0xFF)
   if(hdr & 0x04){
     s.light = data[i];
     ++i;
   }
 
+  /*
+   * Off-chip temperature and relative humidity sensing.
+   * Temperature is 16ths of a degree C.
+   * Relative humidity is in 16ths of a percent.
+   */
   if(hdr & 0x08){
     s.tempC = ((data[i]<<4) + (data[i+1]/16.0));
     i += 2;
@@ -188,13 +168,20 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
     i += 2;
   }
 
+  // Skipping 2-byte moisture values for now
   if(hdr & 0x10){
     i += 2;
   }
 
+  // Skipping 6-byte history values for now
   if(hdr & 0x20){
     i += 6;
   }
+
+  /*
+   * Battery status.  First is the battery voltage measured in millivolts.
+   * Second is the estimated number of Joules consumed since start-up.
+   */
   if(hdr & 0x40){
     s.batteryMv = ((data[i]<<8) + (data[i+1]))/1000.0;
     i += 2;
@@ -205,6 +192,12 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
 }
 
 
+/*
+ * Legacy code (from GRAIL?) that needs to be replaced.
+ * 
+ * Idea: Scan the USB tree, extract PIPs, grab a packet (to read ID), and 
+ *       present them to the user to pick one.
+ */
 void attachPIPs(list<libusb_device_handle*> &pip_devs) {
   //Keep track of the count of USB devices. Don't check if this doesn't change.
   //static int last_usb_count = 0;
@@ -312,12 +305,15 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
 }
 
 
-int main(int ac, char** arg_vector) {
+/*
+ * Main method, scans for USB devices, reads Pip packets (if Pipsqueak device
+ * found), and checks for user input on keyboard.  When Ctrl+C (SIGINT) is
+ * detected, "killed" will become false, and main will exit.
+ */
+int main(void) {
 
   // Prepare ncurses
   initNCurses();
-
-  
   
   //Set up a signal handler to catch interrupt signals so we can close gracefully
   signal(SIGINT, handler);  
@@ -450,42 +446,6 @@ int main(int ac, char** arg_vector) {
               if ((pkt->rssi != (int) 0) and (pkt->lqi != 0) and (pkt->crcok)) {
                 unsigned char* data = (unsigned char*)pkt;
 
-/*
-                //Even parity check
-                bool parity_failed = false;
-                {
-                  unsigned char p1 = 0;
-                  unsigned char p2 = 0;
-                  unsigned char p3 = 0;
-                  unsigned long packet = ((unsigned int)data[9]  << 16) |
-                    ((unsigned int)data[10] <<  8) |
-                    ((unsigned int)data[11]);
-
-                  int i;
-*/
-                  /* XOR each group of 3 bytes until all of the 24 bits have been XORed. */
-/*                  for (i = 7; i >= 0; --i) {
-                    unsigned char triple = (packet >> (3 * i)) & 0x7;
-                    p1 ^= triple >> 2;
-                    p2 ^= (triple >> 1) & 0x1;
-                    p3 ^= triple & 0x1;
-                  }
-*/
-                  /* If the end result of the XORs is three 0 bits then even parity held,
-                   * which suggests that the packet data is good. Otherwise there was a bit error. */
-/*                  if (p1 ==  0 && p2 == 0 && p3 == 0) {
-                    parity_failed = false;
-                  }
-                  else {
-                    parity_failed = true;
-                  }
-                }
-*/
-//                if (not parity_failed) {
-                  //Now assemble a sample data variable and send it to the aggregation server.
-                  //Calculate the tagID here instead of using be32toh since it is awkward to convert a
-                  //21 bit integer to 32 bits. Multiply by 8192 and 32 instead of shifting by 13 and 5
-                  //bits respectively to avoid endian issues with bit shifting.
                   unsigned int netID = ((unsigned int)data[9] * 65536)  + ((unsigned int)data[10] * 256) +
                     ((unsigned int)data[11] );
                   //We do not currently use the pip's local timestamp
@@ -496,8 +456,6 @@ int main(int ac, char** arg_vector) {
 
                   //Set this to the real timestamp, milliseconds since 1970
                   timeval tval;
-                  //time_t tval;
-                  //std::time(&tval);
                   gettimeofday(&tval,NULL);
                   s.time = tval;
                   s.rcvTime = ntohl(pkt->time);
@@ -536,8 +494,6 @@ int main(int ac, char** arg_vector) {
     catch (std::exception& e) {
 //      std::cerr<<"USB sensor layer error: "<<e.what()<<'\n';
     }
-    //Try to reconnect to the server after losing the connection.
-    //Sleep a little bit, then try connecting to the server again.
   }
 //  std::cerr<<"Exiting\n";
   //Clean up the pip connections before exiting.
