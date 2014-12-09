@@ -279,7 +279,7 @@ void renderHistoryPanel(){
   if((historyPanelOffset + (lastDrawRow-drawRow) + 1 ) < histCopy.size()){
     wmove(historyWindow,lastDrawRow,1);
     waddch(historyWindow,'v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
-    scroll = false;
+    scroll = true;
   }
 
   int scrollStart = -1;
