@@ -356,6 +356,8 @@ void showHistory(int historyId){
   show_panel(historyPanel);
   hide_panel(mainPanel);
 
+  setStatus(STATUS_INFO_HISTORY);
+
   renderHistoryPanel();
 
   update_panels();
@@ -363,7 +365,6 @@ void showHistory(int historyId){
 }
 
 void handleHistoryInput(int userKey){
-  int step = 0;
   switch(userKey){
     case 27:  // ESC or ALT key
       userKey = getch();
@@ -840,15 +841,6 @@ void renderUpdate(int updatedId,bool newEntry){
     }
   }
 
-  if(!panel_hidden(historyPanel) and (updatedId == mainHighlightId)){
-    if(newEntry){
-      updateHistoryList(historyWindow);
-    }
-  }
-}
-
-void updateHistoryList(WINDOW* win){
-  
 }
 
 void drawFraming(WINDOW* win){
