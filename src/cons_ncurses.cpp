@@ -292,6 +292,9 @@ void renderHistoryPanel(){
     int maxSize = displayedRows - 2;
     // Fraction of displayed content versus total
     int scrollSize = maxSize * (((float)displayedRows)/histCopy.size());
+    if(scrollSize == 0){
+      scrollSize = 1;
+    }
     
     // "Maximum" offset of scrolled window, based on history vector
     int maxOffset = histCopy.size() - displayedRows;
