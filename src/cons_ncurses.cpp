@@ -57,17 +57,19 @@
 //Handle interrupt signals to exit cleanly.
 #include <signal.h>
 
+// Maximum number if history packets per tag
+#define MAX_HISTORY 1000
+
 
 using std::string;
 using std::list;
 using std::map;
 using std::pair;
-using std::vector;
 
 std::set<int> recordedIds;
 map<int,pip_sample_t> latestSample;
-map<int,vector<pip_sample_t>> history;
-vector<pip_sample_t> histCopy;
+map<int,list<pip_sample_t>> history;
+list<pip_sample_t> histCopy;
 int mainHighlightId = -1;
 std::ofstream recordFile;
 pair<int,int> displayBounds(0,0);
@@ -298,7 +300,7 @@ void renderHistoryPanel(){
       scrollSize = 1;
     }
     
-    // "Maximum" offset of scrolled window, based on history vector
+    // "Maximum" offset of scrolled window, based on history list
     int maxOffset = histCopy.size() - displayedRows;
     if(maxOffset < 0){
       maxOffset = 0;
@@ -321,8 +323,8 @@ void renderHistoryPanel(){
   wattron(historyWindow,A_BOLD);
   wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt   Batt  Joul");
   wattroff(historyWindow,A_BOLD);
-  vector<pip_sample_t>::iterator it = histCopy.begin();
-  // Step through the data vector
+  list<pip_sample_t>::iterator it = histCopy.begin();
+  // Step through the data list 
   for(int i = 0; i < historyPanelOffset and it != histCopy.end(); ++i, it++){}
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
     if(drawRow >= scrollStart and drawRow < scrollEnd){
@@ -377,8 +379,6 @@ void handleHistoryInput(int userKey){
       break;
     case KEY_HOME:
       historyPanelOffset = 0;
-      //FIXME: Calling this causes a segfault.
-      // Perhaps it's caused by the way the vector is copied?
       renderHistoryPanel();
       repaint();
       break;
@@ -807,9 +807,9 @@ void updateState(pip_sample_t& sd){
     storedData.batteryJ = -1;
   }
 
-  vector<pip_sample_t>& tagHistory = history[sd.tagID];
-  tagHistory.insert(tagHistory.begin(),sd);
-  if(tagHistory.size() > 100){
+  list<pip_sample_t>& tagHistory = history[sd.tagID];
+  tagHistory.push_front(sd);
+  if(tagHistory.size() > MAX_HISTORY){
     tagHistory.pop_back();
   }
 
