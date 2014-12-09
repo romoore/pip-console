@@ -286,7 +286,7 @@ void renderHistoryPanel(){
   int scrollEnd = -1;
   // Calculate size, offset of scroll bar
   if(scroll){
-    int displayedRows = getMaxRow(historyWindow) - getMinRow(historyWindow) + 1;
+    int displayedRows = lastDrawRow - drawRow + 1;
     std::cerr << "Rows available: " << displayedRows << std::endl;
     // "Entire" size is number of data rows - 2
     // If start = 2, end = 29, then 28 out of 30 can be used
@@ -310,7 +310,7 @@ void renderHistoryPanel(){
 
     // If scrollPercent = 0.0, start at row 2
     // If scrollPercent = 1.0, start at row 2 + (maxSize - scrollSize)
-    scrollStart = maxOffset == 0 ? 2 : 2+scrollPercent*(maxSize-scrollSize);
+    scrollStart = maxOffset == 0 ? drawRow + 1 : drawRow + 1 +scrollPercent*(maxSize-scrollSize);
     std::cerr << "Actual offset of scroll bar: " << scrollStart << std::endl;
     scrollEnd = scrollStart + scrollSize;
     std::cerr << "Actual end of scroll bar: " << scrollEnd << std::endl;
