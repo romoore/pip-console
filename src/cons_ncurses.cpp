@@ -339,6 +339,7 @@ void hideHistory(){
   isShowHistory = false;
 
   updateStatusList(mainWindow);
+  setStatus(STATUS_INFO_HISTORY);
   update_panels();
   repaint();
 }
