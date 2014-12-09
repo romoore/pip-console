@@ -1,5 +1,5 @@
 pip-console
-===============
+===========
 
 About
 -----
@@ -21,6 +21,9 @@ Usage
   period alters the color of the value where red is very low confidence, yellow
   is moderate confidence, and green is high confidence.
 
+  Pressing the 'X' key during operation will translate the Pipsqueak tag IDs
+  from decimal to hexadecimal representation.
+
   You can highlight the different Pipsqueak transmitter rows by using the Up
   and Down arrow keys, the Page Up and Page Down keys, or the Home and End
   keys. Pressing Enter or Return on a row will display the packet history of
@@ -29,20 +32,22 @@ Usage
   Exiting the program is accomplished by sending a SIGQUIT, typically with
   Ctrl+C.
 
+  You may record the decoded packet data to a file at any time while running
+  the program.  To start recording, highlight a Pipsqueak using the arrow keys,
+  and then press the 'R' key.  A new file will be created in whichever
+  directory you started the program.  You may record additional Pipsqueak tags
+  by highlighting their rows and pressing the 'R' key. Tags which are being
+  recorded are marked with an 'R' in the far left margin of their row.  To stop
+  recording a tag, highlight its row and press the 'R' key again.  When no tags
+  are being recorded, the file will be closed.  A new file will be created the
+  next time recording is started.
+
 Dependencies
 ------------
   This program depends upon the libusb1.0 library and ncurses library. On
   Debian-derived systems you can fetch this with the command
 
   sudo apt-get install libusb-1.0-0-dev libncurses-dev
-
-  This program also depends upon the cpp-owl-common and cpp-owl-sensor packages
-  that can be found in the OwlPlatform github repository and downloaded through
-  git with the following commands:
-
-  git clone git://github.com/OwlPlatform/cpp-owl-common.git
-
-  git clone git://github.com/OwlPlatform/cpp-owl-sensor.git
 
 Building
 --------

@@ -8,16 +8,7 @@ set (BSS_VERSION_REVISION 0)
 
 # Optimize for speed, just in case that makes this faster
 set(CMAKE_CXX_FLAGS "-O3 -std=c++0x -Wall -Wextra -Wno-sign-compare")
-include_directories ("${OWL_INC_DIR}" inc)
-
-FIND_PATH(OWL_INC_DIR NAMES owl PATHS /usr/include /usr/local/include)
-IF(NOT OWL_INC_DIR)
-  MESSAGE(FATAL_ERROR "Unable to find libowl installation!")
-ELSE(NOT OWL_INC_DIR)
-  #Truncate the search path
-  STRING(REGEX REPLACE "/owl" "" OWL_INC_DIR ${OWL_INC_DIR})
-ENDIF(NOT OWL_INC_DIR)
-
+include_directories (inc)
 
 add_subdirectory (src bin)
 
@@ -34,7 +25,6 @@ endif()
 
 ## the following are directories where stuff will be installed to
 SET(PKGCONFIG_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}/lib${LIB_SUFFIX}/pkgconfig/" CACHE STRING "Base directory for pkgconfig files")
-SET(INCLUDE_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}/include/owl/" CACHE PATH "The subdirectory to the header prefix")
 
 # uninstall target
 configure_file(

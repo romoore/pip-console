@@ -83,6 +83,7 @@ PANEL* statusPanel;
 
 bool isShowHistory = false;
 extern bool killed;
+bool showHexIds = false;
 
 //Signal handler.
 void whandler(int signal) {
@@ -154,7 +155,7 @@ void toggleRecording(int tagId){
         if(!recordFile){
           bufferOffset += snprintf(&buffer[bufferOffset],79,"Unable to open record file!");
         }else {
-          recordFile << "Timestamp,Date,Tag ID, RSSI, Temp (C), Relative Humidity (%), Light (%), Battery (mV), Battery (J)" << std::endl;
+          recordFile << "Timestamp,Date,Tag ID,Tag ID (Hex),RSSI, Temp (C),Relative Humidity (%),Light (%),Battery (mV),Battery (J)" << std::endl;
           bufferOffset += snprintf(&buffer[bufferOffset],79,"Recording to \"%s\". ",filename);
         }
 
@@ -253,7 +254,7 @@ void renderHistoryPanel(){
 
   // Draw "Titled border"
   char buff[80];
-  int slen = snprintf(buff,79," Tag %d History ",mainHighlightId);
+  int slen = snprintf(buff,79,(showHexIds ? " Tag %06x History " : " Tag %d History "),mainHighlightId);
   int lines, cols;
   getmaxyx(historyWindow,lines,cols);
 
@@ -446,6 +447,13 @@ void handleHistoryInput(int userKey){
       }
 
       break;
+    case 'x':
+    case 'X':
+      showHexIds = !showHexIds;
+      setStatus(showHexIds ? "Changed to hex mode." : "Changed to decimal mode.");
+      renderHistoryPanel();
+      repaint();
+      break;
  
   }
 
@@ -498,6 +506,12 @@ void handleMainInput(int userKey){
     case '\n':
     case '\r':
       showHistory(mainHighlightId);
+      break;
+    case 'x':
+    case 'X':
+      showHexIds = !showHexIds;
+      setStatus(showHexIds ? "Changed to hex mode." : "Changed to decimal mode.");
+      updateStatusList(mainWindow);
       break;
     default:
       break;
@@ -563,7 +577,7 @@ void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
       }
 
 
-      wprintw(win,"%04d  ",pkt.tagID);
+      wprintw(win,(showHexIds ? "%04x  " : "%04d  "),pkt.tagID);
       int color = COLOR_RSSI_MED;
       if(pkt.rssi < -90.0){
         color = COLOR_RSSI_LOW;
@@ -739,7 +753,7 @@ void recordSample(pip_sample_t& sd){
     char tbuff[24]; // Date + time
     strftime(tbuff,23,RECORD_FILE_TIME_FORMAT,std::localtime(&sd.time.tv_sec));
     
-    int length = snprintf(buff,254,RECORD_FILE_LINE_FORMAT,sd.time.tv_sec,sd.time.tv_usec/1000,tbuff,sd.tagID,sd.rssi);
+    int length = snprintf(buff,254,RECORD_FILE_LINE_FORMAT,sd.time.tv_sec,sd.time.tv_usec/1000,tbuff,sd.tagID,sd.tagID,sd.rssi);
     if(sd.tempC > -299){
       length += snprintf(buff+length,254-length,RECORD_FILE_LINE_FORMAT_F4,sd.tempC);
     }

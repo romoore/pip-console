@@ -58,7 +58,7 @@
 /*
  * timestamp, date/time, tagId, rssi
  */
-#define RECORD_FILE_LINE_FORMAT "%ld%03ld,%s,%d,%.1f,"
+#define RECORD_FILE_LINE_FORMAT "%ld%03ld,%s,%d,%06x,%.1f,"
 #define RECORD_FILE_LINE_FORMAT_F4 "%.4f"
 #define RECORD_FILE_LINE_FORMAT_F3 "%.3f"
 /*
