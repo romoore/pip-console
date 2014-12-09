@@ -246,6 +246,18 @@ void paintHistoryLine(WINDOW* win,pip_sample_t pkt){
 void renderHistoryPanel(){
   werase(historyWindow);
   box(historyWindow,0,0);
+
+  // Draw "Titled border"
+  char buff[80];
+  int slen = snprintf(buff,79," Tag %d History ",mainHighlightId);
+  int lines, cols;
+  getmaxyx(historyWindow,lines,cols);
+
+  wmove(historyWindow,0,cols/2-(slen/2));
+  wattron(historyWindow,A_BOLD);
+  wprintw(historyWindow,buff);
+  wattroff(historyWindow,A_BOLD);
+
   if(histCopy.empty()){
     return;
   }
@@ -254,8 +266,21 @@ void renderHistoryPanel(){
   int drawRow = getMinRow(historyWindow);
   int lastDrawRow = getMaxRow(historyWindow);
 
+  // "Up arrow" if offset != 0
+  if(historyPanelOffset > 0){
+    wmove(historyWindow,drawRow,1);
+    waddch(historyWindow,'^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
+  }
+
+  // "Down arrow" if offset + rows < history size
+  if((historyPanelOffset + (lastDrawRow-drawRow) + 1 ) < histCopy.size()){
+    wmove(historyWindow,lastDrawRow,1);
+    waddch(historyWindow,'v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
+  }
+
+
   // Column headers
-  wmove(historyWindow,drawRow-1,2);
+  wmove(historyWindow,drawRow-1,3);
   wattron(historyWindow,A_BOLD);
   wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt   Batt  Joul");
   wattroff(historyWindow,A_BOLD);
@@ -263,7 +288,7 @@ void renderHistoryPanel(){
   // Step through the data vector
   for(int i = 0; i < historyPanelOffset and it != histCopy.end(); ++i, it++){}
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
-    wmove(historyWindow,drawRow,2);
+    wmove(historyWindow,drawRow,3);
     paintHistoryLine(historyWindow,*it);
   }
 }
@@ -322,7 +347,6 @@ void handleHistoryInput(int userKey){
           if(historyPanelOffset < 0){
             historyPanelOffset = 0;
           }
-          std::cerr << "History offset: " << historyPanelOffset << std::endl;
           renderHistoryPanel();
           repaint();
         }
@@ -340,7 +364,7 @@ void handleHistoryInput(int userKey){
       break;
     case KEY_PPAGE:
       {
-        historyPanelOffset -= std::distance(histCopy.begin(),histCopy.end());
+        historyPanelOffset -= getMaxRow(historyWindow)-getMinRow(historyWindow);
         if(historyPanelOffset < 0){
           historyPanelOffset = 0;
         }
@@ -350,24 +374,33 @@ void handleHistoryInput(int userKey){
       break;
     case KEY_DOWN:
       {
-        historyPanelOffset++;
-        int maxOffset = std::distance(histCopy.begin(),histCopy.end()) - getMaxRow(historyWindow) + getMinRow(historyWindow)-1;
-        if(maxOffset > 0 and historyPanelOffset > maxOffset){
-          historyPanelOffset = maxOffset;
+        int screenRows = getMaxRow(historyWindow) - getMinRow(historyWindow);
+        int histSize = histCopy.size();
+        if(histSize > screenRows){
+          historyPanelOffset++;
+          
+          int maxOffset = histSize - screenRows -1;
+          if(maxOffset > 0 and historyPanelOffset > maxOffset){
+            historyPanelOffset = maxOffset;
+          }
+          renderHistoryPanel();
+          repaint();
         }
-        renderHistoryPanel();
-        repaint();
       }
       break;
     case KEY_NPAGE:
       {
-        historyPanelOffset += std::distance(histCopy.begin(),histCopy.end());
-        int maxOffset = std::distance(histCopy.begin(),histCopy.end()) - getMaxRow(historyWindow) + getMinRow(historyWindow)-1;
-        if(maxOffset > 0 and historyPanelOffset > maxOffset){
-          historyPanelOffset = maxOffset;
+        int screenRows = getMaxRow(historyWindow) - getMinRow(historyWindow);
+        int histSize = histCopy.size();
+        if(histSize > screenRows){
+          historyPanelOffset += screenRows;
+          int maxOffset = histSize - screenRows -1;
+          if(maxOffset > 0 and historyPanelOffset > maxOffset){
+            historyPanelOffset = maxOffset;
+          }
+          renderHistoryPanel();
+          repaint();
         }
-        renderHistoryPanel();
-        repaint();
       }
 
       break;
