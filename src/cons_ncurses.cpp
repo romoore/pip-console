@@ -266,16 +266,42 @@ void renderHistoryPanel(){
   int drawRow = getMinRow(historyWindow);
   int lastDrawRow = getMaxRow(historyWindow);
 
+  bool scroll = false;
+
   // "Up arrow" if offset != 0
   if(historyPanelOffset > 0){
     wmove(historyWindow,drawRow,1);
     waddch(historyWindow,'^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
+    scroll = true;
   }
 
   // "Down arrow" if offset + rows < history size
   if((historyPanelOffset + (lastDrawRow-drawRow) + 1 ) < histCopy.size()){
     wmove(historyWindow,lastDrawRow,1);
     waddch(historyWindow,'v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
+    scroll = false;
+  }
+
+  int scrollStart = -1;
+  int scrollEnd = -1;
+  // Calculate size, offset of scroll bar
+  if(scroll){
+    int displayedRows = getMaxRow(historyWindow) - getMinRow(historyWindow) + 1;
+    // "Entire" size is number of data rows - 2
+    // If start = 2, end = 29, then 28 out of 30 can be used
+    int maxSize = displayedRows - 2;
+    // Fraction of displayed content versus total
+    int scrollSize = maxSize * (((float)maxSize)/histCopy.size());
+    
+    int maxOffset = histCopy.size() - maxSize;
+    if(maxOffset < 0){
+      maxOffset = 0;
+    }
+
+    // If 90% near the bottom, then 90% of "empty space" should be above 
+    scrollStart = maxOffset == 0 ? 0 : ((float)historyPanelOffset / maxOffset)*(maxSize-scrollSize);
+    scrollEnd = scrollStart + scrollSize;
+
   }
 
 
@@ -288,6 +314,10 @@ void renderHistoryPanel(){
   // Step through the data vector
   for(int i = 0; i < historyPanelOffset and it != histCopy.end(); ++i, it++){}
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
+    if(drawRow >= scrollStart and drawRow <= scrollEnd){
+      wmove(historyWindow,drawRow,1);
+      addch('#');
+    }
     wmove(historyWindow,drawRow,3);
     paintHistoryLine(historyWindow,*it);
   }
