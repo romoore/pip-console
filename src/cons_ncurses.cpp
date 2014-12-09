@@ -287,20 +287,27 @@ void renderHistoryPanel(){
   // Calculate size, offset of scroll bar
   if(scroll){
     int displayedRows = getMaxRow(historyWindow) - getMinRow(historyWindow) + 1;
+    std::cerr << "Rows available: " << displayedRows << std::endl;
     // "Entire" size is number of data rows - 2
     // If start = 2, end = 29, then 28 out of 30 can be used
     int maxSize = displayedRows - 2;
+    std::cerr << "Maximum size of scroll bar: " << maxSize << std::endl;
     // Fraction of displayed content versus total
     int scrollSize = maxSize * (((float)maxSize)/histCopy.size());
+    std::cerr << "Actual size of scroll bar: " << scrollSize << std::endl;
     
     int maxOffset = histCopy.size() - maxSize;
     if(maxOffset < 0){
       maxOffset = 0;
     }
 
+    std::cerr << "Maximum offset of scroll bar: " << maxOffset << std::endl;
+
     // If 90% near the bottom, then 90% of "empty space" should be above 
     scrollStart = maxOffset == 0 ? 0 : ((float)historyPanelOffset / maxOffset)*(maxSize-scrollSize);
+    std::cerr << "Actual offset of scroll bar: " << scrollStart << std::endl;
     scrollEnd = scrollStart + scrollSize;
+    std::cerr << "Actual end of scroll bar: " << scrollEnd << std::endl;
 
   }
 
