@@ -78,6 +78,9 @@ PANEL* mainPanel;
 WINDOW* historyWindow;
 PANEL* historyPanel;
 
+WINDOW* statusWindow;
+PANEL* statusPanel;
+
 bool isShowHistory = false;
 
 //Signal handler.
@@ -101,9 +104,9 @@ void stopNCurses(){
 
 void setStatus(std::string message){
   int lines,cols;
-  getmaxyx(mainWindow,lines,cols);
-  wmove(mainWindow,lines-1,2);
-  wclrtoeol(mainWindow);
+  getmaxyx(statusWindow,lines,cols);
+  wmove(statusWindow,0,0);
+  wclrtoeol(statusWindow);
   int trim = message.length() - cols-2;
   if(trim > 0){
     std::string::iterator it = message.end();
@@ -111,9 +114,9 @@ void setStatus(std::string message){
     }
     message = std::string(it,message.end());
   }
-  wprintw(mainWindow,message.c_str());
+  wprintw(statusWindow,message.c_str());
 
-  wnoutrefresh(mainWindow);
+  wnoutrefresh(statusWindow);
   doupdate();
 }
 
@@ -322,7 +325,7 @@ void renderHistoryPanel(){
   for(; drawRow <= lastDrawRow and it != histCopy.end(); it++, ++drawRow){
     if(drawRow >= scrollStart and drawRow < scrollEnd){
       wmove(historyWindow,drawRow,1);
-      waddch(historyWindow,'#'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
+      waddch(historyWindow,' '|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW));
     }
     wmove(historyWindow,drawRow,3);
     paintHistoryLine(historyWindow,*it);
@@ -818,7 +821,7 @@ void updateState(pip_sample_t& sd){
   if(sd.dropped > 0){
     char buff[20];
     snprintf(buff,19,"Dropped: %3d",sd.dropped);
-//    setStatus(buff);
+    setStatus(buff);
   }
 
   renderUpdate(sd.tagID,prevLength != latestSample.size());
@@ -924,11 +927,13 @@ void initNCurses(){
   int maxX, maxY;
   getmaxyx(stdscr,maxY,maxX);
 
-  mainWindow = newwin(maxY,maxX, 0, 0);// main window covers entire screen
+  mainWindow = newwin(maxY-1,maxX, 0, 0);// main window covers entire screen
   historyWindow = newwin(maxY-1, maxX, 0, 0); // history window covers entire screen
+  statusWindow = newwin(1,maxX,maxY,0); // Status panel at the bottom, 1 line high
 
   mainPanel = new_panel(mainWindow);
   historyPanel = new_panel(historyWindow);
+  statusPanel = new_panel(statusWindow);
   box(historyWindow,0,0);
   hide_panel(historyPanel);
   // Update the stacking order of panels, history on top
