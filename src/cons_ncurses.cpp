@@ -929,7 +929,7 @@ void initNCurses(){
 
   mainWindow = newwin(maxY-1,maxX, 0, 0);// main window covers entire screen
   historyWindow = newwin(maxY-1, maxX, 0, 0); // history window covers entire screen
-  statusWindow = newwin(1,maxX,maxY,0); // Status panel at the bottom, 1 line high
+  statusWindow = newwin(1,maxX,maxY-1,0); // Status panel at the bottom, 1 line high
 
   mainPanel = new_panel(mainWindow);
   historyPanel = new_panel(historyWindow);
@@ -949,7 +949,7 @@ void resizePanels(){
   int maxX, maxY;
   getmaxyx(stdscr,maxY,maxX);
   WINDOW* oldWin = mainWindow;
-  mainWindow = newwin(maxY,maxX,0,0);
+  mainWindow = newwin(maxY-1,maxX,0,0);
   replace_panel(mainPanel,mainWindow);
   delwin(oldWin);
   update_panels();
