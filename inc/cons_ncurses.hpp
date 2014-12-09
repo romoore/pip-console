@@ -2,6 +2,7 @@
 #define PIP_CONS_NCURSES_H_
 /*
  * Copyright (c) 2012 Bernhard Firner and Rutgers University
+ * Copyright (C) 2014 Robert S. Moore II and Rutgers University
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or
@@ -21,30 +22,14 @@
  */
 
 /*******************************************************************************
- * @file pip_sense_layer.cpp
- * Collect data from a PIP receiver connected via USB to this device. Forward
- * that data to an aggregator.
+ * @file cons_ncurses.hpp
+ * Header definition for ncurses console for Pipsqueak tags.
  *
- * @author Bernhard Firner
+ * @author Robert S. Moore II
  ******************************************************************************/
-//TODO Create lib-cppsensor so that sockets don't need to be handled here.
-
-//These includes need to come first because of the macro defining INT64_MAX
-//TODO FIXME Are some of the old C-style includes breaking this macro?
 
 #include <ncurses.h>
 #include <string>
-
-#define MAX_WRITE_PKTS		0x01
-
-#define FT_READ_MSG			0x00
-#define FT_WRITE_MSG		0x01
-#define FT_READ_ACK			0x02
-
-#define FT_MSG_SIZE			0x03
-
-#define MAX_PACKET_SIZE_READ		(64 *1024 )
-#define MAX_PACKET_SIZE_WRITE		512
 
 #define COLOR_RSSI_LOW 1
 #define COLOR_RSSI_MED 2
