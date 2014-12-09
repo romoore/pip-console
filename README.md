@@ -57,8 +57,8 @@ Building
 
 License
 -------
- Copyright (C) 2012 Bernhard Firner and Rutgers University
- Copyright (C) 2014 Robert S. Moore II and Rutgers University
+ Copyright (C) 2012 Bernhard Firner and Rutgers University  
+ Copyright (C) 2014 Robert S. Moore II and Rutgers University  
  All rights reserved.
  
  This program is free software; you can redistribute it and/or
