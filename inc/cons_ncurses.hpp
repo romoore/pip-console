@@ -50,7 +50,7 @@
 
 #define DATE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
 
-#define STATUS_INFO_KEYS "Use arrow keys to scroll. Toggle recording with R."
+#define STATUS_INFO_KEYS "Use arrow keys to scroll. Toggle recording with R. Esc to quit."
 #define STATUS_INFO_HISTORY "Use arrow keys to scroll. Esc to exit."
 
 #define RECORD_FILE_FORMAT "%Y%m%d_%H%M%S.csv"
