@@ -170,6 +170,7 @@ void parseData(std::vector<unsigned char>& data,pip_sample_t& s){
 
   // Skipping 2-byte moisture values for now
   if(hdr & 0x10){
+    s.moisture = ((data[i]<<8) + (data[i+1]));
     i += 2;
   }
 

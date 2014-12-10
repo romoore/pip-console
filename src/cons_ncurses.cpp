@@ -587,15 +587,16 @@ void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
       wattron(win,COLOR_PAIR(color));
       wprintw(win,"%4.1f",pkt.rssi);
       wattroff(win,COLOR_PAIR(color));
+
       if(pkt.tempC > -300){
-        wprintw(win,"  %6.2f C",pkt.tempC);
+        wprintw(win," %6.2f C",pkt.tempC);
       }else{
-        wprintw(win,"  ------  ");
+        wprintw(win," ------  ");
       }
       if(pkt.rh > -300){
-        wprintw(win,"  %6.2f %%  ",pkt.rh);
+        wprintw(win," %6.2f %% ",pkt.rh);
       }else {
-        wprintw(win,"  ------    ");
+        wprintw(win," ------   ");
       }
       if(pkt.light >= 0){
         color = COLOR_LIGHT_MED;
@@ -611,6 +612,8 @@ void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
         wprintw(win,"--");
       }
 
+      wprintw(win," %04d",pkt.moisture);
+
       // Battery
       wprintw(win,"  ");
       if(pkt.batteryMv > 0){
@@ -623,12 +626,12 @@ void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
         wattron(win,COLOR_PAIR(color));
         wprintw(win,"%4.3f",pkt.batteryMv);
         wattroff(win,COLOR_PAIR(color));
-        wprintw(win,"  ");
+        wprintw(win," ");
         wattron(win,COLOR_PAIR(color));
         wprintw(win,"%4d",pkt.batteryJ);
         wattroff(win,COLOR_PAIR(color));
       }else {
-        wprintw(win,"-----  ----");
+        wprintw(win,"----- ----");
       }
 
       //2014-12-02 13:34:04
@@ -797,6 +800,7 @@ void updateState(pip_sample_t& sd){
   storedData.rh = sd.rh;
   storedData.light = sd.light;
   storedData.rcvTime = sd.rcvTime;
+  storedData.moisture = sd.moisture;
   if(sd.batteryMv > 0){
     storedData.batteryMv = sd.batteryMv;
     storedData.batteryJ = sd.batteryJ;
@@ -878,7 +882,7 @@ void drawFraming(WINDOW* win){
   wmove(win,0,1);
   wclrtoeol(win);
   wattron(win,A_BOLD);
-  wprintw(win,"  Tag   RSSI   Temp (C) Rel. Hum. Lt  Batt   Joul  Date                 Period");
+  wprintw(win,"  Tag   RSSI Temp     Rel. Hum Lt Mst   Batt  Joul  Date                 Period");
   wattroff(win,A_BOLD);
 }
 
