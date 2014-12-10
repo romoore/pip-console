@@ -462,6 +462,10 @@ void handleHistoryInput(int userKey){
       renderHistoryPanel();
       repaint();
       break;
+   case 's':
+   case 'S':
+      saveHistory(histCopy);
+     break;
  
   }
 
@@ -761,9 +765,45 @@ void updateStatusLine(WINDOW* win,int tagId){
 
 }
 
+void saveHistory(std::list<pip_sample_t>& list){
+  if(list.empty()){
+    return;
+  }
+  char filename[250];
+  time_t tval;
+  std::time(&tval);
+  int offset = snprintf(filename,249,"snap-");
+  offset += snprintf(filename+offset,249-offset,"%04d-",list.front().tagID);
+  offset += strftime(filename+offset,249-offset,RECORD_FILE_FORMAT,std::localtime(&tval));
+  char buffer[80];
+  std::ofstream snapFile;
+  snapFile.open(filename);
+  if(!snapFile){
+    setStatus("Unable to save snapshot file.");
+    return;
+  }
+  snapFile << "Timestamp,Date,Tag ID,Tag ID (Hex),RSSI, Temp (C),Relative Humidity (%),Light (%),Moisture,Battery (mV),Battery (J)" << std::endl;
+
+  {
+    std::list<pip_sample_t>::iterator it = list.begin();
+    for(; it != list.end(); it++){
+      recordSample(*it,snapFile);
+    }
+  }
+
+  snapFile.close();
+
+  snprintf(buffer,79,"Saved history to \"%s\".",filename);
+  setStatus(buffer);
+
+}
 
 void recordSample(pip_sample_t& sd){
-  if(recordFile){
+  recordSample(sd,recordFile);
+}
+
+void recordSample(pip_sample_t& sd, std::ofstream& file){
+  if(file){
     char buff[255];
     char tbuff[24]; // Date + time
     strftime(tbuff,23,RECORD_FILE_TIME_FORMAT,std::localtime(&sd.time.tv_sec));
@@ -798,7 +838,7 @@ void recordSample(pip_sample_t& sd){
       length += snprintf(buff+length,254-length,"%d",sd.batteryJ);
     }
   
-    if(!(recordFile << std::string(buff,length) << std::endl)){
+    if(!(file << std::string(buff,length) << std::endl)){
       setStatus((char*)"Error writing to record file!");
     }
   }

@@ -30,6 +30,9 @@
 
 #include <ncurses.h>
 #include <string>
+#include <fstream>
+
+#include <list>
 
 #define COLOR_RSSI_LOW 1
 #define COLOR_RSSI_MED 2
@@ -51,7 +54,7 @@
 #define DATE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
 
 #define STATUS_INFO_KEYS "Use arrow keys to scroll. Toggle recording with R. Esc to quit."
-#define STATUS_INFO_HISTORY "Use arrow keys to scroll. Esc to exit."
+#define STATUS_INFO_HISTORY "Use arrow keys to scroll. Save snapshot with S. Esc to exit."
 
 #define RECORD_FILE_FORMAT "%Y%m%d_%H%M%S.csv"
 
@@ -103,6 +106,9 @@ void toggleRecording(int);
 void renderUpdate(int,bool);
 int getMinRow(WINDOW* win);
 int getMaxRow(WINDOW* win);
+void recordSample(pip_sample_t&);
+void recordSample(pip_sample_t&,std::ofstream&);
+void saveHistory(std::list<pip_sample_t>&);
 
 
 #endif
