@@ -81,7 +81,7 @@ typedef struct {
   unsigned long int rcvTime;
   long int interval;
   float intervalConfidence;
-  unsigned int moisture;
+  long int moisture;
 } pip_sample_t;
 
 void repaint();

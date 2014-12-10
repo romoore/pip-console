@@ -131,6 +131,7 @@ void initPipData(pip_sample_t& s){
   s.batteryMv = -1;
   s.batteryJ = -1;
   s.interval = 0;
+  s.moisture = -1;
 }
 
 void toggleRecording(int tagId){
@@ -157,7 +158,7 @@ void toggleRecording(int tagId){
         if(!recordFile){
           bufferOffset += snprintf(&buffer[bufferOffset],79,"Unable to open record file!");
         }else {
-          recordFile << "Timestamp,Date,Tag ID,Tag ID (Hex),RSSI, Temp (C),Relative Humidity (%),Light (%),Battery (mV),Battery (J)" << std::endl;
+          recordFile << "Timestamp,Date,Tag ID,Tag ID (Hex),RSSI, Temp (C),Relative Humidity (%),Light (%),Moisture,Battery (mV),Battery (J)" << std::endl;
           bufferOffset += snprintf(&buffer[bufferOffset],79,"Recording to \"%s\". ",filename);
         }
 
@@ -223,6 +224,13 @@ void paintHistoryLine(WINDOW* win,pip_sample_t pkt){
     wattroff(win,COLOR_PAIR(color));
   }else {
     wprintw(win,"--");
+  }
+
+  // Moisture
+  if(pkt.moisture >= 0){
+    wprintw(win," %4d",pkt.moisture);
+  }else {
+    wprintw(win," ----");
   }
 
   // Battery
@@ -321,7 +329,7 @@ void renderHistoryPanel(){
   // Column headers
   wmove(historyWindow,drawRow-1,3);
   wattron(historyWindow,A_BOLD);
-  wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt   Batt  Joul");
+  wprintw(historyWindow,"Date/Time                 RSSI   Temp (C) Rel. Hum. Lt  Mst   Batt  Joul");
   wattroff(historyWindow,A_BOLD);
   list<pip_sample_t>::iterator it = histCopy.begin();
   // Step through the data list 
@@ -612,7 +620,11 @@ void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
         wprintw(win,"--");
       }
 
-      wprintw(win," %04d",pkt.moisture);
+      if(pkt.moisture >= 0){
+        wprintw(win," %4d",(int)pkt.moisture);
+      }else {
+        wprintw(win," ----");
+      }
 
       // Battery
       wprintw(win,"  ");
@@ -772,6 +784,11 @@ void recordSample(pip_sample_t& sd){
     }
     length += snprintf(buff+length,254-length,",");
 
+    if(sd.moisture >= 0){
+      length += snprintf(buff+length,254-length,"%ld",sd.moisture);
+    }
+    length += snprintf(buff+length,254-length,",");
+
     if(sd.batteryMv >=0){
       length += snprintf(buff+length,254-length,RECORD_FILE_LINE_FORMAT_F3,sd.batteryMv);
     }
@@ -882,7 +899,7 @@ void drawFraming(WINDOW* win){
   wmove(win,0,1);
   wclrtoeol(win);
   wattron(win,A_BOLD);
-  wprintw(win,"  Tag   RSSI Temp     Rel. Hum Lt Mst   Batt  Joul  Date                 Period");
+  wprintw(win,"  Tag   RSSI Temp     Rel. Hum Lt  Mst  Batt  Joul  Date                 Period");
   wattroff(win,A_BOLD);
 }
 
