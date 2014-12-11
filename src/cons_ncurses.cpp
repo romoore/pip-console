@@ -582,7 +582,12 @@ void handleMainInput(int userKey){
 
 void updateHighlight(int userKey){
   gettimeofday(&lastKey,NULL);
+  bool oldD = disp;
+  // If in "screen saver" mode, then ignore key press any further
   setDisp(false);
+  if(oldD){
+    return;
+  }
   if(isShowHistory){
     handleHistoryInput(userKey);
   }else {
@@ -816,7 +821,13 @@ void setDisp(bool newVal){
   if(disp){
     draw();
   }else {
-    updateStatusList(mainWindow);
+    if(isShowHistory){
+      renderHistoryPanel();
+      setStatus(STATUS_INFO_HISTORY);
+    }else {
+      updateStatusList(mainWindow);
+      setStatus(STATUS_INFO_KEYS);
+    }
     repaint();
   }
 }
