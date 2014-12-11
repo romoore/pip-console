@@ -42,6 +42,9 @@ Usage
   are being recorded, the file will be closed.  A new file will be created the
   next time recording is started.
 
+  The optional flag "--fun" will reduce the delay for the "screen saver"
+  feature.
+
 Dependencies
 ------------
   This program depends upon the libusb1.0 library and ncurses library. On
