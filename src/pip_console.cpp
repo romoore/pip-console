@@ -32,6 +32,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <libusb-1.0/libusb.h>
+#include <stdexcept>
 
 #include <arpa/inet.h>
 
