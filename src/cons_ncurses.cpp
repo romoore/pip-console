@@ -781,13 +781,14 @@ void draw(){
     win = historyWindow;
   }
   getmaxyx(win,y,x);
+  y = getMaxRow(win);
 
   r += (std::rand() % 3) - 1;
   c += (std::rand() % 3) - 1;
   if(r < 0){
     r = 0;
-  }else if(r >= getMaxRow(win)){
-    r = y-1;
+  }else if(r > y){
+    r = y;
   }
   if(c < 0){
     c = 0;
