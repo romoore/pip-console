@@ -58,6 +58,7 @@
 
 #define RECORD_FILE_FORMAT "%Y%m%d_%H%M%S.csv"
 
+
 /*
  * timestamp, date/time, tagId, rssi
  */
@@ -70,6 +71,7 @@
 #define RECORD_FILE_LINE_FORMAT_ALL "%s,%s,%s,%s,%s"
 #define RECORD_FILE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
 
+extern long long int FUN_START_DELAY;
 
 typedef struct {
   timeval time;
@@ -109,6 +111,7 @@ int getMaxRow(WINDOW* win);
 void recordSample(pip_sample_t&);
 void recordSample(pip_sample_t&,std::ofstream&);
 void saveHistory(std::list<pip_sample_t>&);
+void setDisp(bool);
 
 
 #endif

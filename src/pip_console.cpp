@@ -56,6 +56,7 @@ using std::pair;
 
 //Global variable for the signal handler.
 bool killed = false;
+extern long long int FUN_START_DELAY;
 
 
 //Signal handler.
@@ -311,7 +312,13 @@ void attachPIPs(list<libusb_device_handle*> &pip_devs) {
  * found), and checks for user input on keyboard.  When Ctrl+C (SIGINT) is
  * detected, "killed" will become false, and main will exit.
  */
-int main(void) {
+int main(int argc, char** argv){
+
+  if(argc > 1){
+    if(strncmp(argv[1],"--fun",5) == 0){
+      FUN_START_DELAY = 10;
+    }
+  }
 
   // Prepare ncurses
   initNCurses();

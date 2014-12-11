@@ -50,7 +50,10 @@
 #include <algorithm>
 #include <stdexcept>
 #include <ctime>
+#include <cstdlib>
 #include <cmath>
+
+#include <random>
 
 
 
@@ -74,6 +77,8 @@ int mainHighlightId = -1;
 std::ofstream recordFile;
 pair<int,int> displayBounds(0,0);
 
+timeval lastKey;
+
 WINDOW* mainWindow;
 PANEL* mainPanel;
 
@@ -86,6 +91,15 @@ PANEL* statusPanel;
 bool isShowHistory = false;
 extern bool killed;
 bool showHexIds = false;
+
+
+int r =0 ,c =0;
+char v = ' ';
+bool disp = false;
+
+/* Default to 1 hour */
+long long int FUN_START_DELAY = 3600; //2147483647;
+
 
 //Signal handler.
 void whandler(int signal) {
@@ -567,7 +581,8 @@ void handleMainInput(int userKey){
 
 
 void updateHighlight(int userKey){
-
+  gettimeofday(&lastKey,NULL);
+  setDisp(false);
   if(isShowHistory){
     handleHistoryInput(userKey);
   }else {
@@ -576,6 +591,9 @@ void updateHighlight(int userKey){
 }
 
 void printStatusLine(WINDOW* win,pip_sample_t pkt, bool highlight){
+  if(disp){
+    return;
+  }
     wclrtoeol(win);
 
       if(recordedIds.count(pkt.tagID)){
@@ -750,6 +768,58 @@ bool updateWindowBounds(){
   return boundsChanged;
 }
 
+
+void draw(){
+  setStatus("#### SCREEN SAVER MODE #### ANY KEY TO EXIT ####");
+  int oldR = r;
+  int oldC = c;
+
+  int x,y;
+
+  WINDOW* win = mainWindow;
+  if(isShowHistory){
+    win = historyWindow;
+  }
+  getmaxyx(win,y,x);
+
+  r += (std::rand() % 3) - 1;
+  c += (std::rand() % 3) - 1;
+  if(r < 0){
+    r = 0;
+  }else if(r >= getMaxRow(win)){
+    r = y-1;
+  }
+  if(c < 0){
+    c = 0;
+  }else if(c >= x-1){
+    c = x-1;
+  }
+
+  // Move to new location
+  wmove(win,r,c);
+  // Get the character that will be shuffled
+  chtype s;
+  winchnstr(win,&s,1);
+  // Replace character with space
+  waddch(win,' '|COLOR_PAIR(COLOR_SCROLL_ARROW));
+  // Move to old space location
+  wmove(win,oldR,oldC);
+  // Replace with shuffled char
+  waddch(win,s);
+  wnoutrefresh(win);
+  repaint();
+}
+
+void setDisp(bool newVal){
+  disp = newVal;
+  if(disp){
+    draw();
+  }else {
+    updateStatusList(mainWindow);
+    repaint();
+  }
+}
+
 void updateStatusLine(WINDOW* win,int tagId){
   if(!panel_hidden(mainPanel)){
     drawFraming(win);
@@ -762,6 +832,7 @@ void updateStatusLine(WINDOW* win,int tagId){
       repaint();
     }
   }
+
 
 }
 
@@ -909,6 +980,12 @@ void updateState(pip_sample_t& sd){
   }
 
   renderUpdate(sd.tagID,prevLength != latestSample.size());
+  timeval t;
+  gettimeofday(&t,NULL);
+  if(t.tv_sec - lastKey.tv_sec > FUN_START_DELAY){
+    setDisp(true);
+    draw();
+  }
 }
 
 /**
@@ -927,6 +1004,9 @@ void renderUpdate(int updatedId,bool newEntry){
 }
 
 void drawFraming(WINDOW* win){
+  if(disp){
+    return;
+  }
   // Draw "scroll" indicator arrows
   wmove(win,0,0);
   waddch(win,displayBounds.first > 0 ? ('^'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
@@ -975,6 +1055,7 @@ void repaint(){
 }
 
 void initNCurses(){
+  std::srand(std::time(0));
   set_escdelay(25);
   initscr();  // Start ncurses mode
   //halfdelay(1); // Allow character reads to end after 100ms
@@ -1012,6 +1093,7 @@ void initNCurses(){
   box(historyWindow,0,0);
   hide_panel(historyPanel);
   // Update the stacking order of panels, history on top
+  gettimeofday(&lastKey, NULL);
   
   signal(SIGWINCH, whandler);
   updateStatusList(mainWindow);
