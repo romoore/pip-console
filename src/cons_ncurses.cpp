@@ -64,6 +64,7 @@
 #define MAX_HISTORY 1000
 
 
+
 using std::string;
 using std::list;
 using std::map;
@@ -99,6 +100,8 @@ bool disp = false;
 
 /* Default to 1 hour */
 long long int FUN_START_DELAY = 3600; //2147483647;
+
+int ssMode = 0;
 
 
 //Signal handler.
@@ -584,7 +587,7 @@ void updateHighlight(int userKey){
   gettimeofday(&lastKey,NULL);
   bool oldD = disp;
   // If in "screen saver" mode, then ignore key press any further
-  setDisp(false);
+  setDispOff();
   if(oldD){
     return;
   }
@@ -773,9 +776,74 @@ bool updateWindowBounds(){
   return boundsChanged;
 }
 
+int screenSvrMsgOffset = 0;
+
+void screenSaver(pip_sample_t& pkt){
+  if(ssMode == 0){
+    draw();
+  }else {
+    draw2(pkt);
+  }
+}
+
+void draw2(pip_sample_t& pkt){
+   ++screenSvrMsgOffset;
+  if(screenSvrMsgOffset + 48 > 80){
+    screenSvrMsgOffset = 0;
+  }
+  char buff[81];
+  for(int i = 0; i < screenSvrMsgOffset; ++i){
+    snprintf(buff+i,80-i," ");
+  }
+  snprintf(buff+screenSvrMsgOffset,80-screenSvrMsgOffset,"#### SCREEN SAVER MODE #### ANY KEY TO EXIT ####");
+  setStatus(buff);
+
+  WINDOW* win = mainWindow;
+  if(isShowHistory){
+    win = historyWindow;
+  }
+  int maxRow = getMaxRow(win)+1;
+
+
+  int color = COLOR_PAIR(COLOR_SS_0);
+  if(pkt.rssi > -70){
+    color = COLOR_PAIR(COLOR_SS_6);
+  }else if(pkt.rssi > -75){
+    color = COLOR_PAIR(COLOR_SS_5);
+  }else if(pkt.rssi > -80){
+    color = COLOR_PAIR(COLOR_SS_4);
+  }else if(pkt.rssi > -85){
+    color = COLOR_PAIR(COLOR_SS_3);
+  }else if(pkt.rssi > -90){
+    color = COLOR_PAIR(COLOR_SS_2);
+  }
+  else if(pkt.rssi > -95){
+    color = COLOR_PAIR(COLOR_SS_1);
+  }
+  wmove(stdscr,r,c);
+  waddch(stdscr,' '|color);
+
+  ++c;
+  if(c >= 80){
+    ++r;
+    c = 0;
+  }
+  if(r > maxRow){
+    r = 0;
+  }
+}
 
 void draw(){
-  setStatus("#### SCREEN SAVER MODE #### ANY KEY TO EXIT ####");
+  ++screenSvrMsgOffset;
+  if(screenSvrMsgOffset + 48 > 80){
+    screenSvrMsgOffset = 0;
+  }
+  char buff[81];
+  for(int i = 0; i < screenSvrMsgOffset; ++i){
+    snprintf(buff+i,80-i," ");
+  }
+  snprintf(buff+screenSvrMsgOffset,80-screenSvrMsgOffset,"#### SCREEN SAVER MODE #### ANY KEY TO EXIT ####");
+  setStatus(buff);
   int oldR = r;
   int oldC = c;
 
@@ -816,11 +884,22 @@ void draw(){
   repaint();
 }
 
+void setDispOff(){
+  disp = false;
+  if(isShowHistory){
+    renderHistoryPanel();
+    setStatus(STATUS_INFO_HISTORY);
+  }else {
+    updateStatusList(mainWindow);
+    setStatus(STATUS_INFO_KEYS);
+  }
+  repaint();
+
+}
+
 void setDisp(bool newVal){
   disp = newVal;
-  if(disp){
-    draw();
-  }else {
+  if(!disp){
     if(isShowHistory){
       renderHistoryPanel();
       setStatus(STATUS_INFO_HISTORY);
@@ -829,6 +908,10 @@ void setDisp(bool newVal){
       setStatus(STATUS_INFO_KEYS);
     }
     repaint();
+  }else {
+    ssMode = (std::rand() % 2);
+    r = 0;
+    c = 0;
   }
 }
 
@@ -995,8 +1078,10 @@ void updateState(pip_sample_t& sd){
   timeval t;
   gettimeofday(&t,NULL);
   if(t.tv_sec - lastKey.tv_sec > FUN_START_DELAY){
-    setDisp(true);
-    draw();
+    if(!disp){
+      setDisp(true);
+    }
+    screenSaver(sd);
   }
 }
 
@@ -1027,6 +1112,7 @@ void drawFraming(WINDOW* win){
   getmaxyx(win,maxy,maxx);
   wmove(win,maxy-1,0);
   int numIds = latestSample.size();
+  wclrtoeol(win);
   waddch(win,(numIds > 0) and (displayBounds.second < (numIds-1)) ? ('v'|A_BOLD|COLOR_PAIR(COLOR_SCROLL_ARROW)) : ' ');
   wmove(win,0,1);
   wclrtoeol(win);
@@ -1091,6 +1177,14 @@ void initNCurses(){
   init_pair(COLOR_CONFIDENCE_HIGH, COLOR_GREEN, COLOR_BLACK);
   init_pair(COLOR_BATTERY_LOW, COLOR_RED, COLOR_BLACK);
   init_pair(COLOR_BATTERY_NORMAL, COLOR_GREEN, COLOR_BLACK);
+
+  init_pair(COLOR_SS_0,COLOR_WHITE,COLOR_BLACK);
+  init_pair(COLOR_SS_1,COLOR_WHITE,COLOR_RED);
+  init_pair(COLOR_SS_2,COLOR_WHITE,COLOR_YELLOW);
+  init_pair(COLOR_SS_3,COLOR_WHITE,COLOR_GREEN);
+  init_pair(COLOR_SS_4,COLOR_WHITE,COLOR_BLUE);
+  init_pair(COLOR_SS_5,COLOR_WHITE,COLOR_CYAN);
+  init_pair(COLOR_SS_6,COLOR_WHITE,COLOR_MAGENTA);
 
   int maxX, maxY;
   getmaxyx(stdscr,maxY,maxX);

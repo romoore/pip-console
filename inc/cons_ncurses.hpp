@@ -51,6 +51,14 @@
 #define COLOR_BATTERY_LOW 11
 #define COLOR_BATTERY_NORMAL 12
 
+#define COLOR_SS_0 13
+#define COLOR_SS_1 14
+#define COLOR_SS_2 15
+#define COLOR_SS_3 16
+#define COLOR_SS_4 17
+#define COLOR_SS_5 18
+#define COLOR_SS_6 19
+
 #define DATE_TIME_FORMAT "%m/%d/%Y %H:%M:%S"
 
 #define STATUS_INFO_KEYS "Use arrow keys to scroll. Toggle recording with R. Esc to quit."
@@ -112,6 +120,11 @@ void recordSample(pip_sample_t&);
 void recordSample(pip_sample_t&,std::ofstream&);
 void saveHistory(std::list<pip_sample_t>&);
 void setDisp(bool);
+void setDispOff();
+
+void draw();
+void draw2(pip_sample_t&);
+void screenSaver(pip_sample_t&);
 
 
 #endif
