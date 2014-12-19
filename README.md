@@ -24,6 +24,9 @@ Usage
   Pressing the 'X' key during operation will translate the Pipsqueak tag IDs
   from decimal to hexadecimal representation.
 
+  Pressing either the 'Delete' or 'Backspace' key will remove that sensor from
+  the main listing.
+
   You can highlight the different Pipsqueak transmitter rows by using the Up
   and Down arrow keys, the Page Up and Page Down keys, or the Home and End
   keys. Pressing Enter or Return on a row will display the packet history of

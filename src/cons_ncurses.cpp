@@ -361,6 +361,68 @@ void renderHistoryPanel(){
   }
 }
 
+/*
+ * Delete a sensor row from the main list.
+ */
+void deleteSensor(int sensorId){
+  if(sensorId < 0){
+    return;
+  }
+
+  // Determine the row the sensor is at
+  map<int,pip_sample_t>::iterator it = latestSample.begin();
+  int sensorRow = -1;
+  for(int i = 0; it != latestSample.end(); ++i, it++){
+    if(sensorId == it->first){
+      sensorRow = i;
+      break;
+    }
+  }
+
+  // Could not find the sensor ID for some reason...
+  if(sensorRow < 0){
+    return;
+  }
+
+  // "it" is now pointing to the sensor to be deleted
+  
+  // Need to see if highlightId should be updated
+  if(sensorId == mainHighlightId){
+    // First check "down"
+    if(std::distance(it,latestSample.end()) > 1){
+      auto oldIt = it;
+      it++;
+      mainHighlightId = it->first;
+      latestSample.erase(oldIt);
+    }
+    // Check "up"
+    else if(std::distance(latestSample.begin(),it) > 0){
+      auto oldIt = it;
+      it--;
+      mainHighlightId = it->first;
+      latestSample.erase(oldIt);
+    }
+    // This was the only entry?
+    else {
+      latestSample.erase(it);
+      mainHighlightId = -1;
+    }
+  }
+  // Not the highlighted ID, so no worries about updating highlight
+  else {
+    latestSample.erase(it);
+  }
+  
+
+  // Remove that row
+  history.erase(sensorId);
+  updateStatusList(mainWindow);
+  setStatus("Deleted 1 sensor");
+  update_panels();
+  repaint();
+
+}
+
 // Hides the history panel
 void hideHistory(){
   show_panel(mainPanel);
@@ -542,6 +604,13 @@ void handleMainInput(int userKey){
       setStatus(showHexIds ? "Changed to hex mode." : "Changed to decimal mode.");
       updateStatusList(mainWindow);
       break;
+   case KEY_BACKSPACE:
+   case KEY_DL:
+   case KEY_DC:
+    if(mainHighlightId >= 0){
+      deleteSensor(mainHighlightId);
+    }
+    break;
     default:
       break;
   }

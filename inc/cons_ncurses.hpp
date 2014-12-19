@@ -126,5 +126,7 @@ void draw();
 void draw2(pip_sample_t&);
 void screenSaver(pip_sample_t&);
 
+void deleteSensor(int);
+
 
 #endif
